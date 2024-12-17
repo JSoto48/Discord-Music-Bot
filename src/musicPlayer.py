@@ -47,58 +47,49 @@ class SongQueue():
 
     def pop(self) -> Song:
         # Removes and returns song from the first index of the queue
-        return self.queue.pop[0]
+        return self.__queue.pop(0)
 
 
 
 
 class QueueManager():
-    def __init__(self, bot: commands.Bot):
-        self.bot: commands.Bot = bot
-        self.searchQueue: SongQueue = SongQueue()
-        self.recommendedQueue: SongQueue = SongQueue()
-        self.timer = None
+    def __init__(self):
+        self.queue: SongQueue = SongQueue()
+        self.voiceClient: discord.VoiceClient = None
 
 
-    async def play(self, track: Song, interaction: discord.Interaction) -> str:
-        response = ''
+    async def addToQueue(self, track: Song, interaction: discord.Interaction):
+        if self.queue.isPlaying:
+            self.queue.addSong(track)
+            return
+        else:
+            self.queue.addSong(track)
+            await self.join(interaction=interaction)
+            self.__play()
+        
+
+
+    def __play(self):
+        self.queue.isPlaying = True
+        if self.voiceClient is not None:
+            currentTrack = self.queue.pop()
+            self.voiceClient.play(discord.FFmpegPCMAudio(currentTrack.url))
+        else:
+            print("Voice client is null")
+        
+
+
+    async def join(self, interaction: discord.Interaction):
         userVoice = interaction.user.voice
         botVC = discord.utils.get(interaction.client.voice_clients, guild=interaction.guild)
 
-        if self.searchQueue.isPlaying or self.recommendedQueue.isPlaying:
-            response = "Already playing song, added to queue"
-            self.searchQueue.addSong(track)
-        elif not userVoice:
-            response = 'Join a voice channel to play music'
+        if not userVoice:
+            print('Join a voice channel to play music')
         else:
-            response = 'Playing music'
             if not botVC:
                 try:
-                    voiceClient = await userVoice.channel.connect()
+                    self.voiceClient = await userVoice.channel.connect()
                 except Exception as e:
                     print(e)
-                    return e
-            
-            self.searchQueue.addSong(track)
-            self.searchQueue.isPlaying = True
-            voiceClient.play(discord.FFmpegPCMAudio(track.url))
 
-        return response
-
-
-    # async def join(self, interaction: discord.Interaction) -> bool:
-    #     userVoice = interaction.user.voice
-    #     botVC = discord.utils.get(interaction.client.voice_clients, guild=interaction.guild)
-    #     if not userVoice:
-    #         print('Join a voice channel to play music')
-    #         return False
-    #     elif botVC:
-    #         print('bot alr in vc')
-    #         return False
-    #     else:
-    #         try:
-    #             voiceClient = await userVoice.channel.connect()
-    #         except Exception as e:
-    #             print(e)
-    #             return False
         
