@@ -31,7 +31,7 @@ def getGreeting() -> str:
                 'Hey, my N word',
                 'Herro',
                 'Hola',                                 # Mexican
-                "Aye foo",
+                'Aye foo',
                 'Sup esse',
                 'Órale amigo',
                 'Mira güey',
@@ -45,7 +45,7 @@ def getGreeting() -> str:
                 '*sigh* hey',                           # Action based
             ]
 
-    randomGreeting = greetings[random.randint(0, len(greetings))]
+    randomGreeting: str = greetings[random.randint(0, len(greetings))]
     return randomGreeting
 
 
@@ -61,14 +61,14 @@ class MusicBot(commands.Bot):
         self.spotifyAPI = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=environ.get('SPOTIFY_API_KEY'), client_secret=environ.get('SPOTIFY_SECRET_API_KEY')))
 
         # Class variables
-        self.GUILD = discord.Object(id='1316505478196629585')   # Discord development server GUILD id
-        self.queueManager: QueueManager = QueueManager(self)
+        self.GUILD = discord.Object(id=environ.get('DISCORD_GUILD_ID'))   # Discord development server GUILD id
+        self.queueManager: QueueManager = QueueManager()
 
 
     def setup_commands(self):
         @self.tree.command(name='hello', description='Greet the bot')
         async def hello(interaction: discord.Interaction):
-            await interaction.response.send_message(f"{getGreeting()}, {interaction.user.mention}!")
+            await interaction.response.send_message(f'{getGreeting()}, {interaction.user.mention}!')
 
 
         @self.tree.command(name='joke', description='Responds with a dad joke')
@@ -78,8 +78,9 @@ class MusicBot(commands.Bot):
 
         @self.tree.command(name='coinflip', description='Flips a coin')
         async def coinflip(interaction: discord.Interaction):
-            value = random.randint(0, 1)
+            value: int = random.randint(0, 1)
             result: str = None
+            
             if value < 1:
                 result = 'Heads'
             else:
@@ -90,7 +91,7 @@ class MusicBot(commands.Bot):
         async def search_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
             # Autofill used for /play command's song select
             # Using Spotify web API to ensure the song exists in their DB
-            apiCall = None
+            apiCall: [] = None
             if current == '':
                 apiCall = self.spotifyAPI.search(q='test', limit=7, type=['track', 'artist'])
             else:
@@ -107,9 +108,8 @@ class MusicBot(commands.Bot):
             return trackSelection
 
 
-        # -------------TESTING-------------
-        @self.tree.command(name='play', description='Plays music in your voice channel', guild=self.GUILD)
-        @app_commands.describe(query="Song select")
+        @self.tree.command(name='play', description='Plays music in your voice channel')
+        @app_commands.describe(query='Song select')
         @app_commands.autocomplete(query=search_autocomplete)
         async def play(interaction: discord.Interaction, query: str):
             if '@#' not in query:
@@ -124,8 +124,7 @@ class MusicBot(commands.Bot):
                 await interaction.response.send_message(f'Error downloading track')
                 return
 
-            responseStr = await self.queueManager.play(track=currentTrack, interaction=interaction)
-            print(responseStr)
+            await self.queueManager.addToQueue(track=currentTrack, interaction=interaction)
 
 
 
@@ -133,8 +132,7 @@ class MusicBot(commands.Bot):
         try:
             self.setup_commands()
             synced = await self.tree.sync(guild=self.GUILD)
-            print(f'Synced {len(synced)} commands to guild {self.GUILD.id}')
-            print('Bot Ready!')
+            print(f'Logged in as {self.user}')
         except Exception as e:
             print(f'Error syncing commands: {e}')
 
