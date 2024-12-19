@@ -8,7 +8,6 @@ from musicPlayer import Song, QueueManager
 import random
 from dadjokes import Dadjoke
 
-
 def getGreeting() -> str:
     greetings: [str] = [
                 'Hiya',                                 # Midwestern
@@ -62,7 +61,7 @@ class MusicBot(commands.Bot):
 
         # Class variables
         self.GUILD = discord.Object(id=environ.get('DISCORD_GUILD_ID'))   # Discord development server GUILD id
-        self.queueManager: QueueManager = QueueManager()
+        self.queueManager: QueueManager = QueueManager(self.spotifyAPI)
 
 
     def setup_commands(self):
@@ -80,7 +79,6 @@ class MusicBot(commands.Bot):
         async def coinflip(interaction: discord.Interaction):
             value: int = random.randint(0, 1)
             result: str = None
-            
             if value < 1:
                 result = 'Heads'
             else:
@@ -108,23 +106,28 @@ class MusicBot(commands.Bot):
             return trackSelection
 
 
-        @self.tree.command(name='play', description='Plays music in your voice channel')
+        ## ---------TESTING-----------
+        @self.tree.command(name='test', description='Plays music in your voice channel', guild=self.GUILD)
         @app_commands.describe(query='Song select')
         @app_commands.autocomplete(query=search_autocomplete)
-        async def play(interaction: discord.Interaction, query: str):
+        async def test(interaction: discord.Interaction, query: str):
+            await interaction.response.defer()
+
             if '@#' not in query:
-                await interaction.response.send_message(f'Could not find song')
+                # Try another search?
+                await interaction.followup.send(f'Could not find song')
                 return
             
             artist: str = query.split('@#')[0]
             title: str = query.split('@#')[1]
             currentTrack: Song = Song(title=title, artist=artist)
 
-            if not currentTrack.downloadTrack():
-                await interaction.response.send_message(f'Error downloading track')
+            if not currentTrack.getUrl():
+                await interaction.followup.send('Error downloading track')
                 return
 
-            await self.queueManager.addToQueue(track=currentTrack, interaction=interaction)
+            response = await self.queueManager.addToQueue(track=currentTrack, interaction=interaction)
+            await interaction.followup.send(response)
 
 
 
