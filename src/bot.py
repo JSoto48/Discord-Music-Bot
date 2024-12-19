@@ -102,15 +102,13 @@ class MusicBot(commands.Bot):
                 track = item['name']
                 trackQuery = artist + " - " + track
                 trackSelection.append(app_commands.Choice(name=(artist+" - "+track), value=(artist+"@#"+track)))
-
             return trackSelection
 
 
-        ## ---------TESTING-----------
-        @self.tree.command(name='test', description='Plays music in your voice channel', guild=self.GUILD)
+        @self.tree.command(name='play', description='Plays music in your voice channel')
         @app_commands.describe(query='Song select')
         @app_commands.autocomplete(query=search_autocomplete)
-        async def test(interaction: discord.Interaction, query: str):
+        async def play(interaction: discord.Interaction, query: str):
             await interaction.response.defer()
 
             if '@#' not in query:
@@ -120,15 +118,7 @@ class MusicBot(commands.Bot):
             
             artist: str = query.split('@#')[0]
             title: str = query.split('@#')[1]
-            currentTrack: Song = Song(title=title, artist=artist)
-
-            if not currentTrack.getUrl():
-                await interaction.followup.send('Error downloading track')
-                return
-
-            response = await self.queueManager.addToQueue(track=currentTrack, interaction=interaction)
-            await interaction.followup.send(response)
-
+            await self.queueManager.addToQueue(songName=title, songArtist=artist, interaction=interaction)
 
 
     async def on_ready(self):
