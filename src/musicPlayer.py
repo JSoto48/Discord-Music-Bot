@@ -1,7 +1,8 @@
 import yt_dlp as youtube_dl
 import discord
 from discord.ext import commands
-#import asyncio
+#from responses import Responses
+import asyncio
 
 
 class Song():
@@ -10,23 +11,16 @@ class Song():
         self.artist: str = artist
         self.url: str = None
         self.ytdl_opts = {
-        'format': 'bestaudio/best',         # Get the best audio quality
-        'extractaudio': True,               # Extract audio only
-        'audioformat': 'mp3',               # Convert to MP3 format
-        'noplaylist': True,                 # Don't download playlists
-        'quiet': True,                      # Show progress
-        'postprocessors': [{                # Post-process audio to convert to MP3
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '320',      # Audio quality (bitrate)
-        }],
-        'default_search': 'ytsearch1',       # Limit search to the first result
-        'quiet': True,                       # Suppress console output for faster processing
-        'no_warnings': True,                 # Suppress warnings
+            'format': 'bestaudio/best',         # Get the best audio quality
+            'noplaylist': True,                 # Don't download playlists
+            'quiet': True,                      # Show progress
+            'default_search': 'ytsearch1',       # Limit search to the first result
+            'no_warnings': True,                 # Suppress warnings
         }
 
-    def downloadTrack(self) -> bool:
-        searchName = self.artist + ' ' + self.title
+    def getUrl(self) -> bool:
+        searchName = self.artist + ' ' + self.title + ' audio'
+
         with youtube_dl.YoutubeDL(self.ytdl_opts) as ytdl:
             trackInfo = ytdl.extract_info(searchName, download=False)
         if trackInfo is not None:
@@ -39,7 +33,6 @@ class Song():
 class SongQueue():
     def __init__(self):
         self.__queue: list[Song] = []         # FIFO queue
-        self.isPlaying = False
         self.length = 0
 
     def addSong(self, track: Song, requestor: str = None) -> None:
@@ -57,28 +50,21 @@ class SongQueue():
 
 
 class QueueManager():
-    def __init__(self):
+    def __init__(self, spotifyAPI):
         self.queue: SongQueue = SongQueue()
         self.voiceClient: discord.VoiceClient = None
+        self.spotifyAPI = spotifyAPI
+        self.FFmpegOptions = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 
 
-    def playNext(self):
+    def playNext(self, interaction: discord.Interaction = None):
         if self.voiceClient is not None:
             # Bot is in channel
             if self.queue.length > 0:
-                self.__play()
-            else:
-                print("Song queue is empty")
-        print("working on it...")
-
-
-    def __play(self):
-        self.queue.isPlaying = True
-        if self.voiceClient is not None:
-            currentTrack = self.queue.pop()
-            self.voiceClient.play(source=discord.FFmpegPCMAudio(currentTrack.url), after=lambda e: self.playNext())
-        else:
-            print("Voice client is null")
+                currentTrack = self.queue.pop()
+                self.voiceClient.play(source=discord.FFmpegPCMAudio(currentTrack.url, options=self.FFmpegOptions), after=lambda e: self.playNext())
+            #else:
+                # Play recommended songs
 
 
     async def join(self, interaction: discord.Interaction) -> bool:
@@ -98,16 +84,21 @@ class QueueManager():
 
 
     async def addToQueue(self, track: Song, interaction: discord.Interaction) -> str:
-        if self.voiceClient.is_playing():
-            self.queue.addSong(track=track, requestor=interaction.user.id)
-            return "Added to queue"
+        if self.voiceClient is not None:
+            # Bot is in channel and playing audio
+            if self.voiceClient.is_playing():
+                # Add to queue
+                self.queue.addSong(track=track, requestor=interaction.user.id)
+            else:
+                # Skip the paused song
+                self.queue.addSong(track=track, requestor=interaction.user.id)
+                self.playNext()
+            return (f'Added {track.title} to queue')
         else:
             self.queue.addSong(track=track, requestor=interaction.user.id)
             connected = await self.join(interaction=interaction)
             if connected:
-                self.__play()
-                return "Playing song"
+                self.playNext()
+                return (f'Playing {track.title} by {track.artist}')
             else:
                 return "Could not connect to voice"
-
-        
