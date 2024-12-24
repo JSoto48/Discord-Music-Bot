@@ -7,6 +7,7 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from musicPlayer import Song, QueueManager
 import random
 from dadjokes import Dadjoke
+import pylast
 
 def getGreeting() -> str:
     greetings: [str] = [
@@ -58,10 +59,16 @@ class MusicBot(commands.Bot):
 
         # Connection to Spotify Python API
         self.spotifyAPI = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=environ.get('SPOTIFY_API_KEY'), client_secret=environ.get('SPOTIFY_SECRET_API_KEY')))
+        self.lastFM = pylast.LastFMNetwork(
+            api_key=environ.get('LASTFM_API_KEY'),
+            api_secret=environ.get('LASTFM_SECRET_API_KEY'),
+            username=environ.get('LASTFM_USERNAME'),
+            password_hash=(pylast.md5(environ.get('LASTFM_PASSWORD')))
+        )
 
         # Class variables
         self.GUILD = discord.Object(id=environ.get('DISCORD_GUILD_ID'))   # Discord development server GUILD id
-        self.queueManager: QueueManager = QueueManager(self.spotifyAPI)
+        self.queueManager: QueueManager = QueueManager(self.spotifyAPI, self.lastFM)
 
 
     def setup_commands(self):
@@ -88,21 +95,25 @@ class MusicBot(commands.Bot):
 
         async def search_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
             # Autofill used for /play command's song select
-            # Using Spotify web API to ensure the song exists in their DB
-            apiCall: [] = None
+            # LastFM API for top tracks, Spotify API for search
+            trackList: [app_commands.Choice] = []
+
             if current == '':
-                apiCall = self.spotifyAPI.search(q='test', limit=7, type=['track', 'artist'])
+                apiCall = self.lastFM.get_top_tracks(limit=7)
+                for track in apiCall:
+                    tempTitle = str(track.item.title)
+                    tempArtist = str(track.item.artist)
+                    trackList.append(app_commands.Choice(name=(tempArtist+' - '+tempTitle), value=(tempArtist+"@#"+tempTitle)))
             else:
                 apiCall = self.spotifyAPI.search(q=current, limit=7, type=['track', 'artist'])
-            searchResults = apiCall['tracks']['items']
-            trackSelection = []
+                searchResults = apiCall['tracks']['items']
 
-            for index, item in enumerate(searchResults):
-                artist = item['artists'][0]['name']         # BUG(not mine tho) ALL artist data is wrapped in 'extenal_urls' at index 0 
-                track = item['name']
-                trackQuery = artist + " - " + track
-                trackSelection.append(app_commands.Choice(name=(artist+" - "+track), value=(artist+"@#"+track)))
-            return trackSelection
+                for index, item in enumerate(searchResults):
+                    artist = item['artists'][0]['name']         # BUG(not mine tho) ALL artist data is wrapped in 'extenal_urls' at index 0 
+                    title = item['name']
+                    trackQuery = artist + " - " + title
+                    trackList.append(app_commands.Choice(name=(artist+" - "+title), value=(artist+"@#"+title)))
+            return trackList
 
 
         @self.tree.command(name='play', description='Plays music in your voice channel')
