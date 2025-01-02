@@ -6,47 +6,9 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from musicPlayer import Song, QueueManager
 import random
-from dadjokes import Dadjoke
+import dadjokes
 import pylast
-
-def getGreeting() -> str:
-    greetings: [str] = [
-                'Hiya',                                 # Midwestern
-                'Howdy',
-                'Hey neighbor',
-                'Hey sugar',
-                'Greetings',                            # Funny
-                'Ahoy',
-                'Salutations',
-                'Ahoy there',
-                'Speak of the devil...',
-                'What\'s cooking good lookin',
-                'So.. we meet at last',
-                'Wazzup',
-                'Whats good',                           # Slang
-                'Yurrrr',
-                'Sup g',
-                'Slap me some skin, soul brother',      #Racist
-                'What it do, baby boo',
-                'Hey, my N word',
-                'Herro',
-                'Hola',                                 # Mexican
-                'Aye foo',
-                'Sup esse',
-                'Órale amigo',
-                'Mira güey',
-                'Lovely jubly',                         # British
-                'Oi oi',
-                'You\'re a sight for sore eyes',        # Nice
-                'What\'s up, fuckstick',                # Rude
-                'Hey asswipe',
-                'Didn\'t see ya there, dickbooger',
-                'Sup nerd',
-                '*sigh* hey',                           # Action based
-            ]
-
-    randomGreeting: str = greetings[random.randint(0, len(greetings))]
-    return randomGreeting
+import re
 
 
 
@@ -72,14 +34,9 @@ class MusicBot(commands.Bot):
 
 
     def setup_commands(self):
-        @self.tree.command(name='hello', description='Greet the bot')
-        async def hello(interaction: discord.Interaction):
-            await interaction.response.send_message(f'{getGreeting()}, {interaction.user.mention}!')
-
-
         @self.tree.command(name='joke', description='Responds with a dad joke')
         async def joke(interaction: discord.Interaction):
-            await interaction.response.send_message(Dadjoke().joke)
+            await interaction.response.send_message(dadjoke.joke())
         
 
         @self.tree.command(name='coinflip', description='Flips a coin')
@@ -97,13 +54,16 @@ class MusicBot(commands.Bot):
             # Autofill used for /play command's song select
             # LastFM API for top tracks, Spotify API for search
             trackList: [app_commands.Choice] = []
+            artist: str = ''
+            title: str = ''
+            trackQuery: str = ''
 
             if current == '':
                 apiCall = self.lastFM.get_top_tracks(limit=7)
                 for track in apiCall:
-                    tempTitle = str(track.item.title)
-                    tempArtist = str(track.item.artist)
-                    trackList.append(app_commands.Choice(name=(tempArtist+' - '+tempTitle), value=(tempArtist+"@#"+tempTitle)))
+                    title = str(track.item.title)
+                    artist = str(track.item.artist)
+                    trackList.append(app_commands.Choice(name=(f'{artist} - {title}'), value=(artist+"@#"+title)))
             else:
                 apiCall = self.spotifyAPI.search(q=current, limit=7, type=['track', 'artist'])
                 searchResults = apiCall['tracks']['items']
@@ -111,8 +71,12 @@ class MusicBot(commands.Bot):
                 for index, item in enumerate(searchResults):
                     artist = item['artists'][0]['name']         # BUG(not mine tho) ALL artist data is wrapped in 'extenal_urls' at index 0 
                     title = item['name']
-                    trackQuery = artist + " - " + title
-                    trackList.append(app_commands.Choice(name=(artist+" - "+title), value=(artist+"@#"+title)))
+                    trackID: str = item['id']
+                    if item['explicit']:
+                        trackQuery = f'{artist} - {title} (Explicit)'
+                    else:
+                        trackQuery = f'{artist} - {title}'
+                    trackList.append(app_commands.Choice(name=(trackQuery), value=(trackID)))
             return trackList
 
 
@@ -122,9 +86,11 @@ class MusicBot(commands.Bot):
         async def play(interaction: discord.Interaction, query: str):
             await interaction.response.defer()
 
-            if '@#' not in query:
-                # Try another search?
-                await interaction.followup.send(f'Could not find song')
+            url = re.search(r'.com', query)
+            if url:
+                await interaction.followup.send(f'Currently no support for links')
+            elif '@#' not in query:
+                await interaction.followup.send(f'Song not in database')
                 return
             
             artist: str = query.split('@#')[0]
@@ -139,6 +105,10 @@ class MusicBot(commands.Bot):
             print(f'Logged in as {self.user}')
         except Exception as e:
             print(f'Error syncing commands: {e}')
+
+
+    async def on_disconnect(self):
+        print("DISCONNECTED!!!!!!!!!")
 
 
     # Message handler for @ tags in text channels
