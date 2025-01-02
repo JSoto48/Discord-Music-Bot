@@ -76,7 +76,7 @@ class MusicBot(commands.Bot):
                         trackQuery = f'{artist} - {title} (Explicit)'
                     else:
                         trackQuery = f'{artist} - {title}'
-                    trackList.append(app_commands.Choice(name=(trackQuery), value=(trackID)))
+                    trackList.append(app_commands.Choice(name=(trackQuery), value=(artist+"@#"+title)))
             return trackList
 
 

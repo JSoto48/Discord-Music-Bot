@@ -38,11 +38,11 @@ class GuildInfo():
     def __init__(self, guildID:int, voiceClient: discord.VoiceClient = None):
         self.guildID:int = guildID
         self.voiceClient: discord.VoiceClient = voiceClient
-        self.nowPlayingMessage: discord.Message = None
+        self.nowPlayingMessage = None
 
-        self.__history: list[Song] = []     # LIFO queue
-        self.__songQueue: list[Song] = []
-        self.__recQueue: list[Song] = []
+        self.__history: list[Song] = []     # LIFO
+        self.__songQueue: list[Song] = []   # FIFO
+        self.__recQueue: list[Song] = []    # FIFO
     
 
     def clearQueues(self) -> None:
@@ -87,7 +87,6 @@ class GuildInfo():
 
 class QueueManager(discord.ui.View):
     def __init__(self, spotifyAPI, lastFM):
-        #super().__init__(timeout=None)
         self.spotifyAPI = spotifyAPI
         self.lastFM = lastFM
         self.guilds: (int, GuildInfo) = {}
@@ -159,7 +158,7 @@ class QueueManager(discord.ui.View):
         FFmpegOptions = {
             'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 
             'options': '-vn'}
-        guildInfo.voiceClient.play(discord.FFmpegPCMAudio(nextSong.trackUrl, options=FFmpegOptions), after=lambda e: self.playNext(interaction))
+        # guildInfo.voiceClient.play(discord.FFmpegPCMAudio(nextSong.trackUrl, options=FFmpegOptions), after=lambda e: self.playNext(interaction))
 
         trackEmbed: discord.Embed = self.getNowPlayingEmbed(nextSong)
         if guildInfo.nowPlayingMessage is None:
@@ -169,8 +168,8 @@ class QueueManager(discord.ui.View):
 
     
     async def initQueueControls(self, interaction: discord.Interaction, embed: discord.Embed) -> None:
-        guildInfo = self.guilds.get(interaction.guild_id)
-        guildInfo.nowPlayingMessage = await interaction.channel.send(embed=embed, view=self)
+        super().__init__(timeout=None)
+        self.guilds.get(interaction.guild_id).nowPlayingMessage = await interaction.channel.send(embed=embed, view=self)
 
 
     def getSongInfo(self, track: Song) -> Song:
