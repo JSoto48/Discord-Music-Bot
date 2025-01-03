@@ -69,10 +69,8 @@ class GuildInfo():
         if len(self.__songQueue) > 0:
             poppedSong = self.__songQueue.pop(0)
             self.__recQueue.clear()
-            self.__history.insert(0, poppedSong)    # Check history length to conserve memory
         elif len(self.__recQueue) > 0:
             poppedSong = self.__recQueue.pop(0)
-            self.__history.insert(0, poppedSong)    # Check history length to conserve memory
         return poppedSong
     
     def peekPrevious(self) -> Song:
@@ -82,6 +80,12 @@ class GuildInfo():
     def popPrevious(self) -> Song:
         if len(self.__history) > 0:
             return self.__history.pop(0)
+    
+    def pushPrevious(self, song: Song) -> None:
+        if song:
+            if len(self.__history) > 20:
+                self.__history.pop(len(self.__history) - 1)     # Sav Memroy
+            self.__history.insert(0, song)
 
 
 
@@ -90,6 +94,19 @@ class QueueManager(discord.ui.View):
         self.spotifyAPI = spotifyAPI
         self.lastFM = lastFM
         self.guilds: (int, GuildInfo) = {}
+
+
+    @discord.ui.button(emoji='⏯', style=discord.ButtonStyle.grey)
+    async def previous(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        guildInfo = self.guilds.get(interaction.guild_id)
+
+        prevSong = guildInfo.popPrev()
+        if prevSong is None:
+            guildInfo.voiceClient.stop()
+            return
+        else:
+            self.playNext(interaction=interaction, paramSong=prevSong)
 
     
     @discord.ui.button(emoji='⏯', style=discord.ButtonStyle.grey)
@@ -105,7 +122,7 @@ class QueueManager(discord.ui.View):
     @discord.ui.button(emoji='⏭', style=discord.ButtonStyle.grey)
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
-        self.playNext(interaction)
+        self.playNext(interaction=interaction)
 
 
     async def addToQueue(self, songName: str, songArtist:str, interaction: discord.Interaction):
@@ -138,27 +155,37 @@ class QueueManager(discord.ui.View):
            self.playNext(interaction)
 
 
-    def playNext(self, interaction):
+    async def initQueueControls(self, interaction: discord.Interaction, embed: discord.Embed) -> None:
+        super().__init__(timeout=None)
+        self.guilds.get(interaction.guild_id).nowPlayingMessage = await interaction.channel.send(embed=embed, view=self)
+
+
+    def playNext(self, interaction: discord.Interaction, paramSong: Song = None):
         guildInfo = self.guilds.get(interaction.guild_id)
+        nextSong: Song = None
         
-        nextSong: Song = guildInfo.getSong()
-        if nextSong is None:
-            prevSong = guildInfo.peekPrevious()
-            if prevSong is not None:
-                self.getSimilar(prevSong, guildInfo)
-            else:
-                print("ERROR: No previous song to base rec's on")
-                return
+        if paramSong is None:
             nextSong = guildInfo.getSong()
+            if nextSong is None:
+                prevSong = guildInfo.peekPrevious()
+                if prevSong is not None:
+                    self.getSimilar(prevSong, guildInfo)
+                else:
+                    print("ERROR: No previous song to base rec's on")
+                    return
+                nextSong = guildInfo.getSong()
+        else:
+            nextSong = paramSong
 
         if guildInfo.voiceClient.is_playing() or guildInfo.voiceClient.is_paused():
             guildInfo.voiceClient.stop()
         
         nextSong = self.getSongInfo(nextSong)
+        guildInfo.pushPrevious(nextSong)
         FFmpegOptions = {
             'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 
             'options': '-vn'}
-        # guildInfo.voiceClient.play(discord.FFmpegPCMAudio(nextSong.trackUrl, options=FFmpegOptions), after=lambda e: self.playNext(interaction))
+        guildInfo.voiceClient.play(discord.FFmpegPCMAudio(nextSong.trackUrl, options=FFmpegOptions), after=lambda e: self.playNext(interaction))
 
         trackEmbed: discord.Embed = self.getNowPlayingEmbed(nextSong)
         if guildInfo.nowPlayingMessage is None:
@@ -166,10 +193,6 @@ class QueueManager(discord.ui.View):
         else:
             run_coroutine_threadsafe(guildInfo.nowPlayingMessage.edit(embed=trackEmbed), interaction.client.loop)
 
-    
-    async def initQueueControls(self, interaction: discord.Interaction, embed: discord.Embed) -> None:
-        super().__init__(timeout=None)
-        self.guilds.get(interaction.guild_id).nowPlayingMessage = await interaction.channel.send(embed=embed, view=self)
 
 
     def getSongInfo(self, track: Song) -> Song:
