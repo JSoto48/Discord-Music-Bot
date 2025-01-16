@@ -41,16 +41,18 @@ class MusicBot(commands.Bot):
         async def joke(interaction: discord.Interaction):
             # Categories: programming, miscellaneous, dark, pun
             # Blacklist: nsfw, religious, political, racist, sexist
-            # Types: single, twopart, Any
             joke: str = None
-            response: dict = await self.jokeAPI.get_joke(category=['misc', 'dark', 'pun', 'spooky', 'christmas'], response_format='json', search_string=None, amount=1, lang='en')
+            response: dict = await self.jokeAPI.get_joke(category=['misc', 'dark', 'pun', 'spooky', 'christmas'],
+                            response_format='json',
+                            joke_type='Any',
+                            search_string=None,
+                            amount=1,
+                            lang='en')
             match response['type']:
                 case 'single':
-                    joke = response['joke']
+                    joke = str(response['joke'])
                 case 'twopart':
-                    joke = response['setup']
-                    joke += '\n'
-                    joke += response['delivery']
+                    joke = f"{response['setup']}\n{response['delivery']}"
                 case _:
                     joke = 'Your life'
             await interaction.response.send_message(joke)
