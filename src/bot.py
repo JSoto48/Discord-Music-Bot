@@ -17,6 +17,7 @@ class MusicBot(commands.Bot):
         # Initialize the superclass discord.ext.commands.Bot
         intents: Intents = Intents.default()
         intents.message_content = True
+        intents.voice_states = True
         super().__init__(command_prefix='/', intents=intents)
 
         # Connection to Spotify Python API
@@ -96,6 +97,24 @@ class MusicBot(commands.Bot):
             artist: str = query.split('@#')[0]
             title: str = query.split('@#')[1]
             await self.queueManager.addToQueue(songName=title, songArtist=artist, interaction=interaction)
+    
+
+    # Called when a user updates their voice state inside the same guild the bot is in
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        # Allows the bot to leave the voice channel if no members are in it
+        # 1) Check if bot is connected to voice channel
+            # if not connected -> return
+        # 2) Check if the update is coming from the channel the bot is connected to
+            # if it is -> check the len(channel.members)
+        print('UPDATE to voice state:')
+        voice_state = member.guild.voice_client
+        if voice_state is None:
+            print("Bot not connected to voice channel")
+            return
+        elif len(voice_state.channel.members) == 1:
+            await self.queueManager.disconnect(member.guild.id)
+        else:
+            print("No significant update")
 
 
     async def on_ready(self):
@@ -105,10 +124,6 @@ class MusicBot(commands.Bot):
             print(f'Logged in as {self.user}')
         except Exception as e:
             print(f'Error syncing commands: {e}')
-
-
-    async def on_disconnect(self):
-        print("DISCONNECTED!!!!!!!!!")
 
 
     # Message handler for @ tags in text channels
