@@ -6,9 +6,10 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from musicPlayer import Song, QueueManager
 import random
-import dadjokes
+from jokeapi import Jokes
 import pylast
 import re
+import asyncio
 
 
 
@@ -28,6 +29,7 @@ class MusicBot(commands.Bot):
             username=environ.get('LASTFM_USERNAME'),
             password_hash=(pylast.md5(environ.get('LASTFM_PASSWORD')))
         )
+        self.jokeAPI: Jokes = asyncio.run(Jokes())
 
         # Class variables
         self.GUILD = discord.Object(id=environ.get('DISCORD_GUILD_ID'))   # Discord development server GUILD id
@@ -35,9 +37,23 @@ class MusicBot(commands.Bot):
 
 
     def setup_commands(self):
-        @self.tree.command(name='joke', description='Responds with a dad joke')
+        @self.tree.command(name='joke', description='Sends a joke in chat')
         async def joke(interaction: discord.Interaction):
-            await interaction.response.send_message(dadjoke.joke())
+            # Categories: programming, miscellaneous, dark, pun
+            # Blacklist: nsfw, religious, political, racist, sexist
+            # Types: single, twopart, Any
+            joke: str = None
+            response: dict = await self.jokeAPI.get_joke(category=['misc', 'dark', 'pun', 'spooky', 'christmas'], response_format='json', search_string=None, amount=1, lang='en')
+            match response['type']:
+                case 'single':
+                    joke = response['joke']
+                case 'twopart':
+                    joke = response['setup']
+                    joke += '\n'
+                    joke += response['delivery']
+                case _:
+                    joke = 'Your life'
+            await interaction.response.send_message(joke)
         
 
         @self.tree.command(name='coinflip', description='Flips a coin')
