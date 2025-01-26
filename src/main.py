@@ -6,9 +6,8 @@ from bot import MusicBot
 # Entry Point
 def main() -> None:
     load_dotenv()
-    TOKEN = environ.get('DISCORD_BOT_KEY')
     myBot: MusicBot = MusicBot()
-    myBot.run(token=TOKEN)
+    myBot.run(token=environ.get('DISCORD_BOT_KEY'))
     
 
 if __name__ == '__main__':

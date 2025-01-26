@@ -1,48 +1,81 @@
-from os import environ
-import discord
-from discord import Message, Intents, app_commands
-from discord.ext import commands
-import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
-from musicPlayer import Song, QueueManager
-import random
-from jokeapi import Jokes
-import pylast
+import os
 import re
+import pylast
+import random
+import discord
+import spotipy
 import asyncio
-
+from os import environ
+from jokeapi import Jokes
+from discord.ext import commands
+from musicPlayer import Song, GuildPlayer
+from discord import Message, Intents, app_commands
+from spotipy.oauth2 import SpotifyClientCredentials
 
 
 class MusicBot(commands.Bot):
     def __init__(self):
-        # Initialize the superclass discord.ext.commands.Bot
         intents: Intents = Intents.default()
         intents.message_content = True
         intents.voice_states = True
         super().__init__(command_prefix='/', intents=intents)
 
-        # Connection to Spotify Python API
+        # Connection to API's
+        self.jokeAPI: Jokes = asyncio.run(Jokes())
         self.spotifyAPI = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=environ.get('SPOTIFY_API_KEY'), client_secret=environ.get('SPOTIFY_SECRET_API_KEY')))
-        self.lastFM = pylast.LastFMNetwork(
+        self.lastFM: LastFMNetwork = pylast.LastFMNetwork(
             api_key=environ.get('LASTFM_API_KEY'),
             api_secret=environ.get('LASTFM_SECRET_API_KEY'),
             username=environ.get('LASTFM_USERNAME'),
             password_hash=(pylast.md5(environ.get('LASTFM_PASSWORD')))
         )
-        self.jokeAPI: Jokes = asyncio.run(Jokes())
 
         # Class variables
-        self.GUILD = discord.Object(id=environ.get('DISCORD_GUILD_ID'))   # Discord development server GUILD id
-        self.queueManager: QueueManager = QueueManager(self.spotifyAPI, self.lastFM)
+        self.__guilds: (int, GuildPlayer) = {}
+        if not os.path.exists(os.path.join(os.getcwd(), "bin")):
+            os.makedirs(os.path.join(os.getcwd(), "bin"))
+        self.__binPath: str = os.path.join(os.getcwd(), "bin")
+
+
+    # Message handler for @ tags in text channels
+    async def on_message(self, message: Message):
+        author: str = str(message.author)
+        user_message: str = message.content
+
+        if author == self.user or not user_message:
+            # Checks for messages sent from this bot
+            return
+        elif str(self.user.id) in user_message:
+            print(f'BOT WAS TAGGED:{user_message}')
+
+
+    # Called after the bot is initialized
+    async def on_ready(self):
+        try:
+            self.setup_commands()
+            synced = await self.tree.sync()
+            print(f'Logged in as {self.user}')
+        except Exception as e:
+            print(f'Error syncing commands: {e}')
+
+
+    # Called when a user updates their voice state inside the same guild the bot is in
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        voice_state = member.guild.voice_client
+        if voice_state is None:
+            return
+        elif len(voice_state.channel.members) == 1:
+            await self.__guilds.get(member.guild.id).disconnect()
+            self.__guilds.pop(member.guild.id)
+            print(f'Auto-disconnect complete for guild: {member.guild.name}')
 
 
     def setup_commands(self):
         @self.tree.command(name='joke', description='Sends a joke in chat')
         async def joke(interaction: discord.Interaction):
-            # Categories: programming, miscellaneous, dark, pun
             # Blacklist: nsfw, religious, political, racist, sexist
             joke: str = None
-            response: dict = await self.jokeAPI.get_joke(category=['misc', 'dark', 'pun', 'spooky', 'christmas'],
+            response: dict = await self.jokeAPI.get_joke(category=['misc', 'dark', 'pun'],
                             response_format='json',
                             joke_type='Any',
                             search_string=None,
@@ -70,32 +103,25 @@ class MusicBot(commands.Bot):
 
 
         async def search_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-            # Autofill used for /play command's song select
-            # LastFM API for top tracks, Spotify API for search
             trackList: [app_commands.Choice] = []
-            artist: str = ''
-            title: str = ''
             trackQuery: str = ''
 
             if current == '':
                 apiCall = self.lastFM.get_top_tracks(limit=7)
                 for track in apiCall:
-                    title = str(track.item.title)
-                    artist = str(track.item.artist)
-                    trackList.append(app_commands.Choice(name=(f'{artist} - {title}'), value=(artist+"@#"+title)))
+                    trackQuery = str(track.item)
+                    if len(trackQuery) > 99:
+                        trackQuery = trackQuery[0:99]
+                    trackList.append(app_commands.Choice(name=trackQuery, value=(f'FM@#{track.item.artist}^*{track.item.title}')))
             else:
                 apiCall = self.spotifyAPI.search(q=current, limit=7, type=['track', 'artist'])
                 searchResults = apiCall['tracks']['items']
 
-                for index, item in enumerate(searchResults):
-                    artist = item['artists'][0]['name']         # BUG(not mine tho) ALL artist data is wrapped in 'extenal_urls' at index 0 
-                    title = item['name']
-                    trackID: str = item['id']
-                    if item['explicit']:
-                        trackQuery = f'{artist} - {title} (Explicit)'
-                    else:
-                        trackQuery = f'{artist} - {title}'
-                    trackList.append(app_commands.Choice(name=(trackQuery), value=(artist+"@#"+title)))
+                for item in searchResults:
+                    trackQuery = f"{item['artists'][0]['name']} - {item['name']}"
+                    if len(trackQuery) > 99:
+                        trackQuery = trackQuery[0:99]
+                    trackList.append(app_commands.Choice(name=trackQuery, value=(f"SP@#{item['uri']}")))
             return trackList
 
 
@@ -104,55 +130,72 @@ class MusicBot(commands.Bot):
         @app_commands.autocomplete(query=search_autocomplete)
         async def play(interaction: discord.Interaction, query: str):
             await interaction.response.defer()
-
-            url = re.search(r'.com', query)
-            if url:
+            if not interaction.user.voice:
+                await interaction.followup.send('Join a voice channel to play music')
+                return
+            
+            if re.search(r'.com', query):
                 await interaction.followup.send(f'Currently no support for links')
+                return
             elif '@#' not in query:
                 await interaction.followup.send(f'Song not in database')
                 return
             
-            artist: str = query.split('@#')[0]
-            title: str = query.split('@#')[1]
-            await self.queueManager.addToQueue(songName=title, songArtist=artist, interaction=interaction)
-    
+            trackInfo: object = None
+            queuedSong: Song = None
+            match query.split('@#')[0]:
+                case 'FM':
+                    trackSearch = self.spotifyAPI.search(q=f"{(query.split('@#')[1]).split('^*')[0]} {query.split('^*')[1]}", type=['track'])
+                    trackInfo = trackSearch['tracks']['items'][0]
+                case 'SP':
+                    trackInfo = self.spotifyAPI.track(track_id=query.split('@#')[1])
+                case _:
+                    await interaction.followup.send("Error: Matched base-case\nCongrats, please contact discord user jakester48 with steps to recreate")
+                    return
 
-    # Called when a user updates their voice state inside the same guild the bot is in
-    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-        # Allows the bot to leave the voice channel if no members are in it
-        # 1) Check if bot is connected to voice channel
-            # if not connected -> return
-        # 2) Check if the update is coming from the channel the bot is connected to
-            # if it is -> check the len(channel.members)
-        print('UPDATE to voice state:')
-        voice_state = member.guild.voice_client
-        if voice_state is None:
-            print("Bot not connected to voice channel")
-            return
-        elif len(voice_state.channel.members) == 1:
-            await self.queueManager.disconnect(member.guild.id)
-        else:
-            print("No significant update")
+            artistsList: [str] = []
+            for artist in trackInfo['artists']:
+                artistsList.append(artist['name'])
+            queuedSong = Song(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=interaction.user, duration=trackInfo['duration_ms'],
+                    thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'])
 
+            guildPlayer = self.__guilds.get(interaction.guild_id)
+            if guildPlayer is None:
+                guildPath: str = os.path.join(self.__binPath, str(interaction.guild_id))
+                if not os.path.exists(guildPath):
+                    os.makedirs(guildPath)
+                
+                self.__guilds.update({interaction.guild_id:
+                    GuildPlayer(guildID=interaction.guild_id, folderPath=guildPath, eventLoop=interaction.client.loop,
+                        lastFM=self.lastFM, spotify=self.spotifyAPI, msgChannel=interaction.channel)})
+                guildPlayer = self.__guilds.get(interaction.guild_id)
+                queuedSong.getFilePath(folderPath=guildPath)
+                try:
+                    guildPlayer.voiceClient: discord.VoiceClient = await interaction.user.voice.channel.connect()
+                except Exception as e:
+                    await interaction.followup.send(f'Failed to connect to voice: {e}')
+                    guildPlayer.voiceClient: discord.VoiceClient = None
+                    return
+            elif guildPlayer.voiceClient is None or guildPlayer.voiceClient.is_connected() is False:
+                await guildPlayer.clearQueues()
+                guildPath: str = os.path.join(self.__binPath, str(interaction.guild_id))
+                if not os.path.exists(guildPath):
+                    os.makedirs(guildPath)
+                queuedSong.getFilePath(folderPath=guildPath)
+                guildPlayer.__folderPath = guildPath
+                try:
+                    guildPlayer.voiceClient: discord.VoiceClient = await interaction.user.voice.channel.connect()
+                except Exception as e:
+                    await interaction.followup.send(f'Failed to connect to voice: {e}')
+                    guildPlayer.voiceClient: discord.VoiceClient = None
+                    return
+            
+            guildPlayer.queueSong(song=queuedSong)
+            guildPlayer.txtChannel = interaction.channel
+            await interaction.followup.send(f'Added {queuedSong.title} by {queuedSong.artists[0]} to the queue')
+            if guildPlayer.voiceClient.is_playing() is False:
+                guildPlayer.loopChecker()
+            else:
+                guildPlayer.bufferNextSong()        # TODO: Laggy
 
-    async def on_ready(self):
-        try:
-            self.setup_commands()
-            synced = await self.tree.sync(guild=self.GUILD)
-            print(f'Logged in as {self.user}')
-        except Exception as e:
-            print(f'Error syncing commands: {e}')
-
-
-    # Message handler for @ tags in text channels
-    async def on_message(self, message: Message):
-        channel: str = str(message.channel)
-        author: str = str(message.author)
-        user_message: str = message.content
-
-        if author == self.user or not user_message:
-            # Checks for messages sent from this bot
-            return
-        elif str(self.user.id) in user_message:
-            print(f'BOT WAS TAGGED:{user_message}')
 
