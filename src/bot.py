@@ -64,14 +64,26 @@ class MusicBot(commands.Bot):
         voice_state = member.guild.voice_client
         if voice_state is None:
             return
-        elif len(voice_state.channel.members) == 1:
-            await self.__guilds.get(member.guild.id).disconnect()
-            self.__guilds.pop(member.guild.id)
-            print(f'Auto-disconnect complete for guild: {member.guild.name}')
+        elif len(voice_state.channel.members) == 1:     # Need to be sure the member is self
+            guildPlayer = self.__guilds.get(member.guild.id)
+            if guildPlayer is None:
+                return
+            else:
+                guildPath: str = guildPlayer.folderPath
+                await guildPlayer.disconnect()
+                self.__guilds.pop(member.guild.id)
+                for fileName in os.listdir(guildPath):
+                    filePath = os.path.join(guildPath, fileName)
+                    try:
+                        if os.path.isfile(filePath) or os.path.islink(filePath):
+                            os.unlink(filePath)
+                    except Exception as e:
+                        print(e)
+                print(f'Auto-disconnect complete for guild: {member.guild.name}\n')
 
 
     def setup_commands(self):
-        @self.tree.command(name='joke', description='Sends a joke in chat')
+        @self.tree.command(name='joke', description='Sends a joke in chat. Be Warned: These may be dark humor.')
         async def joke(interaction: discord.Interaction):
             # Blacklist: nsfw, religious, political, racist, sexist
             joke: str = None
@@ -166,36 +178,9 @@ class MusicBot(commands.Bot):
                     os.makedirs(guildPath)
                 
                 self.__guilds.update({interaction.guild_id:
-                    GuildPlayer(guildID=interaction.guild_id, folderPath=guildPath, eventLoop=interaction.client.loop,
-                        lastFM=self.lastFM, spotify=self.spotifyAPI, msgChannel=interaction.channel)})
+                    GuildPlayer(guildID=interaction.guild_id, folderPath=guildPath)})
                 guildPlayer = self.__guilds.get(interaction.guild_id)
-                queuedSong.getFilePath(folderPath=guildPath)
-                try:
-                    guildPlayer.voiceClient: discord.VoiceClient = await interaction.user.voice.channel.connect()
-                except Exception as e:
-                    await interaction.followup.send(f'Failed to connect to voice: {e}')
-                    guildPlayer.voiceClient: discord.VoiceClient = None
-                    return
-            elif guildPlayer.voiceClient is None or guildPlayer.voiceClient.is_connected() is False:
-                await guildPlayer.clearQueues()
-                guildPath: str = os.path.join(self.__binPath, str(interaction.guild_id))
-                if not os.path.exists(guildPath):
-                    os.makedirs(guildPath)
-                queuedSong.getFilePath(folderPath=guildPath)
-                guildPlayer.__folderPath = guildPath
-                try:
-                    guildPlayer.voiceClient: discord.VoiceClient = await interaction.user.voice.channel.connect()
-                except Exception as e:
-                    await interaction.followup.send(f'Failed to connect to voice: {e}')
-                    guildPlayer.voiceClient: discord.VoiceClient = None
-                    return
-            
-            guildPlayer.queueSong(song=queuedSong)
-            guildPlayer.txtChannel = interaction.channel
-            await interaction.followup.send(f'Added {queuedSong.title} by {queuedSong.artists[0]} to the queue')
-            if guildPlayer.voiceClient.is_playing() is False:
-                guildPlayer.loopChecker()
-            else:
-                guildPlayer.bufferNextSong()        # TODO: Laggy
+            await guildPlayer.queueSong(song=queuedSong, interaction=interaction)
 
 
+                

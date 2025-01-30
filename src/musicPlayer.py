@@ -1,11 +1,13 @@
 import os
+import yt_dlp
 import pylast
 import spotipy
 import discord
+import logging
 from math import ceil
-import yt_dlp as youtube_dl
-from asyncio import run_coroutine_threadsafe
 from random import choice
+from asyncio import run_coroutine_threadsafe
+from spotipy.oauth2 import SpotifyClientCredentials
 
 class Song():
     def __init__(self, id: str, title: str, artists: list, requestor: discord.User,
@@ -29,8 +31,8 @@ class Song():
         # KEEP THIS TOP PORTION AS IS
         if not os.path.exists(folderPath):
             os.makedirs(folderPath)
-        songBase: str = os.path.join(folderPath, self.id)
-        songPath: str = f"{songBase}.mp3"
+        songBasePath: str = os.path.join(folderPath, self.id)
+        songPath: str = f"{songBasePath}.mp3"
         if os.path.exists(songPath):
             return songPath
         elif self.__filePath != None and os.path.exists(self.__filePath):
@@ -49,17 +51,18 @@ class Song():
                 'preferredquality': '128',      # Audio quality (bitrate)
             }],
             'default_search': 'ytsearch1',       # Limit search to the first result
-            'outtmpl': songBase
+            'outtmpl': songBasePath
         }
         query: str = f'{self.artists[0]} {self.title} audio'
-        with youtube_dl.YoutubeDL(ytdl_opts) as ytdl:
+        with yt_dlp.YoutubeDL(ytdl_opts) as ytdl:
             try:
                 ytdl.download([query])
                 if os.path.exists(songPath):
                     self.__filePath = songPath
-                    return self.__filePath
             except Exception as e:
                 print(f'YT Download Error: {e}')
+        return self.__filePath
+    
     
     def getEmbed(self) -> discord.Embed:
         footerText: str = None
@@ -84,21 +87,25 @@ class Song():
 
 
 class GuildPlayer(discord.ui.View):
-    def __init__(self, guildID: int, folderPath: str, eventLoop,
-    lastFM: pylast.LastFMNetwork, spotify: spotipy.Spotify,
-    voiceClient: discord.VoiceClient = None, msgChannel: discord.TextChannel = None):
+    def __init__(self, guildID: int, folderPath: str):
         super().__init__(timeout=None)
         self.id: int = guildID
-        self.__folderPath: str = folderPath
-        self.__loop = eventLoop
-        self.__lastFM = lastFM
-        self.__spotify = spotify
-        self.voiceClient: discord.VoiceClient = voiceClient
-        self.txtChannel: discord.TextChannel = msgChannel
-
+        self.folderPath: str = folderPath
+        self.voiceClient: discord.VoiceClient = None
+        self.txtChannel: discord.TextChannel = None
         self.nowPlayingMsg: discord.Message = None
         self.lastQueuedSong: Song = None
         self.msgCount: int = 0
+
+        self.__lastFM = pylast.LastFMNetwork(
+            api_key=os.environ.get('LASTFM_API_KEY'),
+            api_secret=os.environ.get('LASTFM_SECRET_API_KEY'),
+            username=os.environ.get('LASTFM_USERNAME'),
+            password_hash=(pylast.md5(os.environ.get('LASTFM_PASSWORD')))
+        )
+        self.__spotify = spotipy.Spotify(
+            auth_manager=SpotifyClientCredentials(client_id=os.environ.get('SPOTIFY_API_KEY'),
+            client_secret=os.environ.get('SPOTIFY_SECRET_API_KEY')))
         self.__songQueue: list[Song] = []   # FIFO
         self.__recQueue: list[Song] = []    # FIFO
         self.__history: list[Song] = []     # LIFO
@@ -115,7 +122,7 @@ class GuildPlayer(discord.ui.View):
     @discord.ui.button(emoji='⏩', style=discord.ButtonStyle.grey)
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
-        self.loopChecker()
+        self.loopChecker(loop=interaction.client.loop)
 
     async def clearQueues(self) -> None:
         self.msgCount = 0
@@ -126,30 +133,42 @@ class GuildPlayer(discord.ui.View):
             self.__recQueue.clear()
         if len(self.__history) > 0:
             self.__history.clear()
-        if self.nowPlayingMsg is not None:
+        if self.nowPlayingMsg != None:
             await self.nowPlayingMsg.delete()
             self.nowPlayingMsg = None
 
     async def disconnect(self) -> None:
-        if self.voiceClient.is_connected():
+        if self.voiceClient is None:
+            await self.clearQueues()
+            return
+        elif self.voiceClient.is_connected():
             if self.voiceClient.is_playing():
                 self.voiceClient.stop()
             await self.voiceClient.disconnect()
         self.voiceClient = None
         await self.clearQueues()
-        for fileName in os.listdir(self.__folderPath):
-            filePath = os.path.join(self.__folderPath, fileName)
-            try:
-                if os.path.isfile(filePath) or os.path.islink(filePath):
-                    os.unlink(filePath)
-            except Exception as e:
-                print(f'Failed to delete {filePath}.\n{e}\n')
 
-    def queueSong(self, song: Song) -> None:
-        self.__songQueue.append(song)
+    async def queueSong(self, song: Song, interaction: discord.Interaction) -> None:
+        if self.voiceClient is None or self.voiceClient.is_connected() is False:
+            await self.clearQueues()
+            try:
+                self.voiceClient = await interaction.user.voice.channel.connect()
+            except Exception as e:
+                await interaction.followup.send(f'Failed to connect to voice.')
+                self.voiceClient: discord.VoiceClient = None
+                return
+                
+        self.txtChannel = interaction.channel
         self.lastQueuedSong = song
         self.msgCount += 1
-    
+        if self.voiceClient.is_playing() is False:
+            await interaction.followup.send(f'Loading {song.title} by {song.artists[0]}...')
+            self.playSong(song=song, loop=interaction.client.loop)
+        else:
+            self.__songQueue.append(song)
+            await interaction.followup.send(f'Added {song.title} by {song.artists[0]} to the queue.')
+            self.bufferNextSong()
+
     def pushPrevious(self, song: Song) -> None:
         if song != None:
             if len(self.__history) > 18:
@@ -199,7 +218,7 @@ class GuildPlayer(discord.ui.View):
                 if nextSong is None:
                     self.lastQueuedSong = None
                     return self.bufferNextSong()
-        nextSong.getFilePath(folderPath=self.__folderPath)
+        nextSong.getFilePath(folderPath=self.folderPath)
     
     def getRecSongs(self, comparableSong: Song) -> Song:
         trackObj: pylast.Track = self.__lastFM.get_track(artist=comparableSong.artists[0], title=comparableSong.title)
@@ -227,7 +246,7 @@ class GuildPlayer(discord.ui.View):
                     print(f"Repeat Song: {tempTitle}")
             elif len(self.__history) > 0:
                 for pastSong in self.__history:
-                    if tempTitle.find(self.lastQueuedSong.title) == -1:
+                    if tempTitle.find(pastSong.title) == -1:
                         matchSimilarity(songStr=f'{tempArtist}@#{tempTitle}', similarFloat=similarity)
                     else:
                         print(f"Repeat Song: {tempTitle}")
@@ -251,46 +270,48 @@ class GuildPlayer(discord.ui.View):
                 recSong = Song(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=self.voiceClient.user, duration=trackInfo['duration_ms'],
                     thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'])
                 self.__recQueue.append(recSong)
-        return self.__recQueue[0]
+        if self.__recQueue[0] == None:
+            print("FIRST REC SONG NULL -> getRecSongs()")
+        else:
+            return self.__recQueue[0]
 
-    def playSong(self, song: Song) -> None:
+    def playSong(self, song: Song, loop) -> None:
         if song is None:
             print("Error: Song is Null!")
             print(f"Length of recQueue: {len(self.__recQueue)}")
             return
         
-        run_coroutine_threadsafe(self.sendNowPlayingMsg(songEmbed=song.getEmbed()), loop=self.__loop)
+        run_coroutine_threadsafe(self.sendNowPlayingMsg(songEmbed=song.getEmbed()), loop)
         FFmpegOptions = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 
             'options': '-vn'}
         audio: discord.AudioSource = discord.PCMVolumeTransformer(
-                original=discord.FFmpegPCMAudio(source=song.getFilePath(folderPath=self.__folderPath),
+                original=discord.FFmpegPCMAudio(source=song.getFilePath(folderPath=self.folderPath),
                     executable='ffmpeg',
                     pipe=False,
                     options=FFmpegOptions),
                 volume=float(1.0))
         self.voiceClient.play(
             source=audio,
-            after=lambda e: self.loopChecker(prevSong=song),
+            after=lambda e: self.loopChecker(loop, prevSong=song),
             application='audio',
             bitrate=128,
             fec=True,
             expected_packet_loss=float(0.15),
             bandwidth='full',
             signal_type='music')
-        self.bufferNextSong()       # TODO: Laggy
+        # self.bufferNextSong()       # TODO: Laggy
 
-    def loopChecker(self, prevSong: Song = None) -> None:
-        if self.voiceClient.is_connected():
+    def loopChecker(self, loop, prevSong: Song = None) -> None:
+        if self.voiceClient is None:
+            return
+        elif self.voiceClient.is_connected():
             if self.voiceClient.is_playing():
                 self.voiceClient.pause()
             if prevSong is not None:
                 self.pushPrevious(song=prevSong)
-            self.playSong(song=self.popSong())
+            self.playSong(song=self.popSong(), loop=loop)
         else:
-            if self.voiceClient is not None:
-                self.voiceClient.stop()
-            if self.__loop != None:
-                run_coroutine_threadsafe(self.clearQueues(), loop=self.__loop)
+            self.voiceClient.stop()
 
     async def sendNowPlayingMsg(self, songEmbed: discord.Embed) -> None:
         if self.nowPlayingMsg is None:
