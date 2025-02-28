@@ -1,7 +1,8 @@
 python-dotenv
-discord.py[voice] - (python3 -m pip install -U discord.py[voice])
-spotipy - (pip install spotipy --upgrade)
-yt_dlp - (python -m pip install --upgrade yt-dlp)
-dadjokes-plus-plus
+jokeapi
+discord.py[voice]
+spotipy
+yt_dlp
 pylast
-ffmpeg - (winget install ffmpeg)
+ffmpeg
+groq
