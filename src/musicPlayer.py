@@ -213,8 +213,11 @@ class DiscordPlayer(discord.ui.View):
             print(e)
             
         chosenSong: pylast.Track = choice(topTracksList).item
-        while not self.recentlyPlayed(chosenSong.get_name()):
-            chosenSong = choice(topTracksList).item
+        if self.recentlyPlayed(chosenSong.get_name()):
+            for topTrack in topTracksList:
+                if not self.recentlyPlayed(topTrack.item.get_name()):
+                    chosenSong = topTrack.item
+                    break
         
         trackInfo = self.__spotify.search(q=(f'{chosenSong.get_artist()} {chosenSong.get_name()}'), limit=1, type=['track'])['tracks']['items'][0]
         artistsList: [str] = []
@@ -270,10 +273,8 @@ class DiscordPlayer(discord.ui.View):
                     thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'])
                 self.__recQueue.append(recSong)
         print(f'Queued Songs: {queuedSongs}')
-        if len(self.__recQueue) > 0:
-            return True
-        else:
-            return False
+        if len(self.__recQueue) > 0: return True
+        else: return False
         
     def recentlyPlayed(self, title: str) -> bool:
         if len(self.__history) < 1: return False
