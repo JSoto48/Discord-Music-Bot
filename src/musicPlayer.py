@@ -117,7 +117,7 @@ class DiscordPlayer(discord.ui.View):
         await interaction.response.defer()
         if self.__voiceClient.is_paused():
             self.__voiceClient.resume()
-            await self.sendNowPlayingMsg()
+            await self.sendNowPlayingMsg(songEmbed=self.__currentSong.getEmbed())
         elif self.__voiceClient.is_playing():
             self.__voiceClient.pause()
             await self.__nowPlayingMsg.edit(embed=self.getPausedEmbed(avatar=interaction.user.display_avatar))
@@ -163,16 +163,10 @@ class DiscordPlayer(discord.ui.View):
         self.__txtChannel = interaction.channel
         self.__lastQueuedSong = song
         self.__resendMsg = True
-        if self.__voiceClient.is_playing():
-            self.__songQueue.append(song)
-            await interaction.followup.send(f'Queued {song.title} by {song.artists[0]}.')
-        else:
-            if self.__nowPlayingMsg:
-                await self.__nowPlayingMsg.delete()
-                self.__nowPlayingMsg = None
-            self.__nowPlayingMsg = await interaction.followup.send(embed=song.getEmbed(title='Loading...'), view=self)
-            self.__recQueue.clear()
-            self.playSong(song=song, loop=interaction.client.loop)
+        self.__songQueue.append(song)
+        await interaction.followup.send(f'Queued {song.title} by {song.artists[0]}.')
+        if not self.__voiceClient.is_playing():
+            self.loopChecker(loop=interaction.client.loop)
 
     def pushPrevious(self, song: Song) -> None:
         if song != None:
@@ -218,6 +212,12 @@ class DiscordPlayer(discord.ui.View):
                 if not self.recentlyPlayed(topTrack.item.get_name()):
                     chosenSong = topTrack.item
                     break
+            # moreTracks = self.__lastFM.get_artist(artist_name=artist).get_top_tracks(limit=(len(topTracksList)*2))
+            # for topTrack in moreTracks: # TODO: Only loop through the new songs.. EX} for i = len(topTracksList) and since moreTracks is double in length, loop through the back half of the list
+            #     chosenSong = choice(topTracksList).item
+            #     if not self.recentlyPlayed(topTrack.item.get_name()):
+            #         chosenSong = topTrack.item
+            #         break
         
         trackInfo = self.__spotify.search(q=(f'{chosenSong.get_artist()} {chosenSong.get_name()}'), limit=1, type=['track'])['tracks']['items'][0]
         artistsList: [str] = []
@@ -293,7 +293,7 @@ class DiscordPlayer(discord.ui.View):
         except Exception as e:
             print(f'Caught exception: {e}')
 
-        run_coroutine_threadsafe(self.sendNowPlayingMsg(song=song), loop)
+        run_coroutine_threadsafe(self.sendNowPlayingMsg(songEmbed=song.getEmbed()), loop)
         self.__currentSong = song
         FFmpegOptions = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 
             'options': '-vn'}
@@ -320,23 +320,21 @@ class DiscordPlayer(discord.ui.View):
         elif self.__voiceClient.is_connected():
             if self.__voiceClient.is_playing():
                 self.__voiceClient.pause()
-            self.pushPrevious(song=self.__currentSong)
+            if self.__currentSong:
+                self.pushPrevious(song=self.__currentSong)
             self.playSong(song=self.popSong(), loop=loop)
         else:
             self.__voiceClient.stop()
 
-    async def sendNowPlayingMsg(self, song: Song = None) -> None:
-        if self.__txtChannel and (song or self.__currentSong):
-            if not self.__resendMsg and self.__nowPlayingMsg:
-                await self.__nowPlayingMsg.edit(embed=(song.getEmbed() if song else self.__currentSong.getEmbed()))
-            else:
-                if self.__nowPlayingMsg:
-                    await self.__nowPlayingMsg.delete()
-                    self.__nowPlayingMsg = None
-                self.__nowPlayingMsg = await self.__txtChannel.send(embed=(song.getEmbed() if song else self.__currentSong.getEmbed()), view=self)
-                self.__resendMsg = False
+    async def sendNowPlayingMsg(self, songEmbed: discord.Embed) -> None:
+        if self.__nowPlayingMsg is None:
+            self.__nowPlayingMsg = await self.__txtChannel.send(embed=songEmbed, view=self)
+        elif self.__resendMsg:
+            await self.__nowPlayingMsg.delete()
+            self.__nowPlayingMsg = await self.__txtChannel.send(embed=songEmbed, view=self)
+            self.__resendMsg = False
         else:
-            print("Could not send nowPlayingMsg: idk fam")
+            await self.__nowPlayingMsg.edit(embed=songEmbed)
     
     def getPausedEmbed(self, avatar) -> discord.Embed:
         pasuedEmbed: discord.Embed = discord.Embed(
