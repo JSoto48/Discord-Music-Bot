@@ -257,7 +257,7 @@ class DiscordPlayer(discord.ui.View):
                 recSongs.get('least').append(track)
 
         for track, similarity in similarSongList:
-            if self.recentlyPlayed(str(track.get_name())) is False:
+            if not self.recentlyPlayed(str(track.get_name())):
                 matchSimilarity(track=track, similarity=similarity)
 
         self.__recQueue.clear()
@@ -284,7 +284,7 @@ class DiscordPlayer(discord.ui.View):
     def recentlyPlayed(self, title: str) -> bool:
         if len(self.__history) < 1: return False
         for track in self.__history:
-            if title.find(track.title) != -1:
+            if title.find(track.title) != -1 or title == track.title:
                 return True
         return False
 
