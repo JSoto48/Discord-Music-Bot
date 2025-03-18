@@ -192,8 +192,9 @@ class DiscordPlayer(discord.ui.View):
         else:
             if self.__lastQueuedSong:
                 if not self.getRecSongs(comparableSong=self.__lastQueuedSong):
-                    self.__lastQueuedSong = None
-                    return self.popSong()
+                    if not self.getArtistCompare(artist=self.__lastQueuedSong.artists[0]):
+                        self.__lastQueuedSong = None
+                        return self.popSong()
             else:
                 for track in self.__history:
                     if self.getRecSongs(comparableSong=track):
