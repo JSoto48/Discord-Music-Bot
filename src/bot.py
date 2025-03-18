@@ -48,12 +48,12 @@ class MusicBot(commands.Bot):
             return
         elif isinstance(message.channel, discord.channel.DMChannel):
             # DM's to the bot
-            aiReply = self.getAiResponse(prompt=user_message, guildID=message.channel.id)
+            aiReply = self.getAiResponse(prompt=user_message)
         elif str(self.user.id) in user_message:
             # Bot was tagged with @bot_username
             tag: str = f'<@{self.user.id}>'
             prompt = user_message.replace(tag, '')
-            aiReply = self.getAiResponse(prompt=prompt, guildID=message.guild.id)
+            aiReply = self.getAiResponse(prompt=prompt)
         
         if len(aiReply) >= 2000:
             aiReply = aiReply[0:1999]
@@ -65,6 +65,7 @@ class MusicBot(commands.Bot):
         try:
             self.setup_commands()
             synced = await self.tree.sync()
+            await self.change_presence(status=discord.Status.online, activity=discord.)
             print(f'Logged in as {self.user}. Commands in tree: {len(synced)}.')
         except Exception as e:
             print(f'Error syncing commands: {e}')
@@ -106,7 +107,7 @@ class MusicBot(commands.Bot):
             
 
     # Used for when bot is tagged
-    def getAiResponse(self, prompt) -> str:
+    def getAiResponse(self, prompt: str) -> str:
         try:
             response = self.groq.chat.completions.create(
                 messages = [
