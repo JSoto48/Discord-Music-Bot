@@ -346,7 +346,7 @@ class DiscordPlayer(discord.ui.View):
             colour=discord.Color.dark_gold()
         )
         pasuedEmbed.set_thumbnail(url=self.__currentSong.thumbnailUrl)
-        pasuedEmbed.set_footer(text=f'By: ', icon_url=avatar)
+        pasuedEmbed.set_footer(icon_url=avatar)
         return pasuedEmbed
     
     def getLoadingEmbed(self, title: str = None) -> discord.Embed:

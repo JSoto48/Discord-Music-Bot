@@ -72,9 +72,9 @@ class MusicBot(commands.Bot):
     # Called when a user updates their voice state(joins, leaves, mutes...) inside the same guild the bot is in
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
         musicPlayer = self.__guilds.get(member.guild.id)
-        if musicPlayer == None:
+        if musicPlayer is None:
             return
-        elif musicPlayer.getChannelLength() < 2 or (member == self.user and after.channel is None):
+        elif musicPlayer.getChannelLength() == 1 or (member == self.user and after.channel is None):
             # If bot is alone in VC or someone kicked the bot from VC
             guildPath: str = musicPlayer.folderPath
             await musicPlayer.disconnect()
