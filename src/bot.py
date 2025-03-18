@@ -25,7 +25,7 @@ class MusicBot(commands.Bot):
         self.jokeAPI: Jokes = asyncio.run(Jokes())
         self.groq = Groq(api_key=environ.get('GROQ_API_KEY'))
         self.spotifyAPI = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=environ.get('SPOTIFY_API_KEY'), client_secret=environ.get('SPOTIFY_SECRET_API_KEY')))
-        self.lastFM: LastFMNetwork = pylast.LastFMNetwork(
+        self.lastFM = pylast.LastFMNetwork(
             api_key=environ.get('LASTFM_API_KEY'),
             api_secret=environ.get('LASTFM_SECRET_API_KEY'),
             username=environ.get('LASTFM_USERNAME'),
@@ -34,22 +34,31 @@ class MusicBot(commands.Bot):
 
         # Class variables
         if not os.path.exists(os.path.join(os.getcwd(), "bin")):
-            os.makedirs(os.path.join(os.getcwd(), "bin"))
+            os.makedirs(os.path.join(os.getcwd(), "bin"))           # Ensure R/W permissions
         self.__binPath: str = os.path.join(os.getcwd(), "bin")
-        self.__guilds: (int, DiscordPlayer) = {}
+        self.__guilds: dict[int, DiscordPlayer] = {}
 
     # Message handler for @ tags in text channels
-    async def on_message(self, message: Message):
-        author: str = str(message.author)
+    async def on_message(self, message: discord.Message):
         user_message: str = message.content
+        aiReply: str = ''
 
-        if author == self.user or not user_message:
-            # Checks for messages sent from this bot
+        if message.author.id == self.bot.user.id or user_message == '':
+            # Messages sent from this bot or messages with no text
             return
-        elif str(self.user.id) in user_message:
-            tag: str = f'<@{self.user.id}>'
+        elif isinstance(message.channel, discord.channel.DMChannel):
+            # DM's to the bot
+            aiReply = self.getAiResponse(prompt=user_message, guildID=message.channel.id)
+        elif str(self.bot.user.id) in user_message:
+            # Bot was tagged with @bot_username
+            tag: str = f'<@{self.bot.user.id}>'
             prompt = user_message.replace(tag, '')
-            await message.reply(self.getAiResponse(prompt=prompt))
+            aiReply = self.getAiResponse(prompt=prompt, guildID=message.guild.id)
+        
+        if len(aiReply) >= 2000:
+            aiReply = aiReply[0:1999]
+        await message.reply(aiReply)
+
 
     # Called after the bot is initialized
     async def on_ready(self):
@@ -60,12 +69,12 @@ class MusicBot(commands.Bot):
         except Exception as e:
             print(f'Error syncing commands: {e}')
 
-    # Called when a user updates their voice state inside the same guild the bot is in
+    # Called when a user updates their voice state(joins, leaves, mutes...) inside the same guild the bot is in
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
         musicPlayer = self.__guilds.get(member.guild.id)
         if musicPlayer is None:
             return
-        elif musicPlayer.getChannelLength() == 1:
+        elif musicPlayer.getChannelLength() < 2:
             guildPath: str = musicPlayer.folderPath
             await musicPlayer.disconnect()
             self.__guilds.pop(member.guild.id)
@@ -128,7 +137,7 @@ class MusicBot(commands.Bot):
 
         async def search_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
             await interaction.response.defer()
-            trackList: [app_commands.Choice] = []
+            trackList: list[app_commands.Choice] = list()
             trackQuery: str = ''
             apiCall = None
 
@@ -181,7 +190,7 @@ class MusicBot(commands.Bot):
                     await interaction.followup.send("Error: How tf did u even get this error?")
                     return
 
-            artistsList: [str] = []
+            artistsList: list[str] = list()
             for artist in trackInfo['artists']:
                 artistsList.append(artist['name'])
 
@@ -195,7 +204,6 @@ class MusicBot(commands.Bot):
                     os.makedirs(guildPath)
                 self.__guilds.update({interaction.guild_id:DiscordPlayer(guildID=interaction.guild_id, folderPath=guildPath)})
                 musicPlayer = self.__guilds.get(interaction.guild_id)
-                
             await musicPlayer.queueSong(song=queuedSong, interaction=interaction)
 
 

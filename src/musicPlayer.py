@@ -14,7 +14,7 @@ class Song():
     duration: float = None, thumbnailUrl: str = None):
         self.id: str = id
         self.title: str = title
-        self.artists: list = artists                    # Primary artist always at index 0
+        self.artists: list[str] = artists                    # Primary artist always at index 0
         self.requestor: discord.User = requestor
         self.duration: float = duration                 # TODO: Extract duration from yt download, currently in ms from spotify
         self.thumbnailUrl: str = thumbnailUrl
@@ -138,14 +138,20 @@ class DiscordPlayer(discord.ui.View):
         if len(self.__history) > 0:
             self.__history.clear()
         if self.__nowPlayingMsg:
-            await self.__nowPlayingMsg.delete()
+            try:
+                await self.__nowPlayingMsg.delete()
+            except Exception as e:
+                print(e)
             self.__nowPlayingMsg = None
         self.__txtChannel = None
 
     async def disconnect(self) -> None:
         if self.__voiceClient:
-            self.__voiceClient.stop()
-            await self.__voiceClient.disconnect()
+            try:
+                self.__voiceClient.stop()
+                await self.__voiceClient.disconnect()
+            except Exception as e:
+                print(e)
             self.__voiceClient = None
         await self.clearQueues()
 
@@ -170,7 +176,7 @@ class DiscordPlayer(discord.ui.View):
 
     def pushPrevious(self, song: Song) -> None:
         if song != None:
-            if len(self.__history) > 18:
+            if len(self.__history) > 20:
                 poppedSong = self.__history.pop(len(self.__history) - 1)
                 poppedSong.deleteFile()
             self.__history.insert(0, song)
@@ -194,33 +200,32 @@ class DiscordPlayer(discord.ui.View):
             return self.__recQueue.pop(0)
 
     def getChannelLength(self) -> int:
-        if self.__voiceClient and self.__voiceClient.is_connected():
+        if self.__voiceClient:
             return len(self.__voiceClient.channel.members)
         return -1
     
-    def getArtistCompare(self, artist: str) -> bool:
+    def getArtistCompare(self, artist: str, count: int = 10) -> bool:
         try:
-            topTracksList = self.__lastFM.get_artist(artist_name=artist).get_top_tracks(limit=10)
-            if len(topTracksList) == 0 or topTracksList is None:
-                return False    # Try similar artist?
+            topTracksList = self.__lastFM.get_artist(artist_name=artist).get_top_tracks(limit=count)
         except Exception as e:
             print(e)
+        if len(topTracksList) < 1 or topTracksList is None:
+            print('artist compare failed')
+            return False
             
         chosenSong: pylast.Track = choice(topTracksList).item
         if self.recentlyPlayed(chosenSong.get_name()):
+            moreSongs: bool = True
             for topTrack in topTracksList:
-                if not self.recentlyPlayed(topTrack.item.get_name()):
+                if self.recentlyPlayed(topTrack.item.get_name()) is False:
                     chosenSong = topTrack.item
+                    moreSongs = False
                     break
-            # moreTracks = self.__lastFM.get_artist(artist_name=artist).get_top_tracks(limit=(len(topTracksList)*2))
-            # for topTrack in moreTracks: # TODO: Only loop through the new songs.. EX} for i = len(topTracksList) and since moreTracks is double in length, loop through the back half of the list
-            #     chosenSong = choice(topTracksList).item
-            #     if not self.recentlyPlayed(topTrack.item.get_name()):
-            #         chosenSong = topTrack.item
-            #         break
+        if moreSongs:
+            return self.getArtistCompare(artist=artist, count=(count*2))
         
         trackInfo = self.__spotify.search(q=(f'{chosenSong.get_artist()} {chosenSong.get_name()}'), limit=1, type=['track'])['tracks']['items'][0]
-        artistsList: [str] = []
+        artistsList: list[str] = list()
         for artist in trackInfo['artists']:
             artistsList.append(artist['name'])
         recSong = Song(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=self.__voiceClient.user, duration=trackInfo['duration_ms'],
@@ -231,14 +236,14 @@ class DiscordPlayer(discord.ui.View):
         else: return False
 
     def getRecSongs(self, comparableSong: Song) -> bool:
-        similarSongList: [pylast.SimilarItem] = None
+        similarSongList: list[pylast.SimilarItem] = list()
         try:
             trackObj: pylast.Track = self.__lastFM.get_track(artist=comparableSong.artists[0], title=comparableSong.title)
             similarSongList = trackObj.get_similar(limit=20)
-            if len(similarSongList) == 0 or similarSongList is None:
-                print("get_similar songs failed")
-                return self.getArtistCompare(artist=comparableSong.artists[0])
         except Exception as e:
+            return self.getArtistCompare(artist=comparableSong.artists[0])
+        if similarSongList is None or len(similarSongList) < 1:
+            print("get_similar songs failed")
             return self.getArtistCompare(artist=comparableSong.artists[0])
         
         recSongs: dict =  {'most': [], 'middle': [], 'least': []}
@@ -251,12 +256,11 @@ class DiscordPlayer(discord.ui.View):
                 recSongs.get('least').append(track)
 
         for track, similarity in similarSongList:
-            if self.recentlyPlayed(str(track.get_name())):
-                continue
-            matchSimilarity(track=track, similarity=similarity)
+            if self.recentlyPlayed(str(track.get_name())) is False:
+                matchSimilarity(track=track, similarity=similarity)
 
         self.__recQueue.clear()
-        queuedSongs: [str] = list()
+        queuedSongs: list[str] = list()
         for key, adjList in recSongs.items():
             tierCensus: int = int(ceil(len(adjList) / float(2)))
             i: int = 0
@@ -266,7 +270,7 @@ class DiscordPlayer(discord.ui.View):
                 query: str = f'{chosenSong.get_artist()} {chosenSong.get_name()}'
                 queuedSongs.append(query)
                 trackInfo = self.__spotify.search(q=query, limit=1, type=['track'])['tracks']['items'][0]
-                artistsList: [str] = []
+                artistsList: list[str] = list()
                 for artist in trackInfo['artists']:
                     artistsList.append(artist['name'])
                 recSong = Song(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=self.__voiceClient.user, duration=trackInfo['duration_ms'],
@@ -342,7 +346,7 @@ class DiscordPlayer(discord.ui.View):
             colour=discord.Color.dark_gold()
         )
         pasuedEmbed.set_thumbnail(url=self.__currentSong.thumbnailUrl)
-        pasuedEmbed.set_footer(text= '', icon_url=avatar)
+        pasuedEmbed.set_footer(text=f'By: ', icon_url=avatar)
         return pasuedEmbed
     
     def getLoadingEmbed(self, title: str = None) -> discord.Embed:
