@@ -65,16 +65,17 @@ class MusicBot(commands.Bot):
         try:
             self.setup_commands()
             synced = await self.tree.sync()
-            print(f'Logged in as {self.user}')
+            print(f'Logged in as {self.user}. Commands in tree: {len(synced)}.')
         except Exception as e:
             print(f'Error syncing commands: {e}')
 
     # Called when a user updates their voice state(joins, leaves, mutes...) inside the same guild the bot is in
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
         musicPlayer = self.__guilds.get(member.guild.id)
-        if musicPlayer is None:
+        if musicPlayer == None:
             return
-        elif musicPlayer.getChannelLength() < 2:
+        elif musicPlayer.getChannelLength() < 2 or (member == self.user and after.channel is None):
+            # If bot is alone in VC or someone kicked the bot from VC
             guildPath: str = musicPlayer.folderPath
             await musicPlayer.disconnect()
             self.__guilds.pop(member.guild.id)
