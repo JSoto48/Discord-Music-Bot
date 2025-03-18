@@ -285,7 +285,7 @@ class DiscordPlayer(discord.ui.View):
     def recentlyPlayed(self, title: str) -> bool:
         if len(self.__history) < 1: return False
         for track in self.__history:
-            if title.find(track.title) != -1 or title == track.title:
+            if title == track.title or title.find(track.title) != -1 or track.title.find(title) != -1:
                 return True
         return False
 
