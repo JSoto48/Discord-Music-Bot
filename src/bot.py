@@ -74,11 +74,11 @@ class MusicBot(commands.Bot):
         musicPlayer = self.__guilds.get(member.guild.id)
         if musicPlayer is None:
             return
-        elif musicPlayer.getChannelLength() == 1 or (member == self.user and after.channel is None):
+        elif musicPlayer.getChannelLength() == 1:
             # If bot is alone in VC or someone kicked the bot from VC
+            musicPlayer.disconnecting = True
             guildPath: str = musicPlayer.folderPath
             await musicPlayer.disconnect()
-            self.__guilds.pop(member.guild.id)
             for fileName in os.listdir(guildPath):
                 filePath = os.path.join(guildPath, fileName)
                 try:
@@ -86,7 +86,24 @@ class MusicBot(commands.Bot):
                         os.unlink(filePath)
                 except Exception as e:
                     print(e)
+            self.__guilds.pop(member.guild.id)
             print(f'Auto-disconnect complete for guild: {member.guild.name}\n')
+        elif member == self.user and after.channel is None:
+            if musicPlayer.disconnecting:
+                return
+            musicPlayer.disconnecting = True
+            guildPath: str = musicPlayer.folderPath
+            await musicPlayer.disconnect()
+            for fileName in os.listdir(guildPath):
+                filePath = os.path.join(guildPath, fileName)
+                try:
+                    if os.path.isfile(filePath) or os.path.islink(filePath):
+                        os.unlink(filePath)
+                except Exception as e:
+                    print(e)
+            self.__guilds.pop(member.guild.id)
+            print(f'Auto-disconnect complete for guild: {member.guild.name}\n')
+            
 
     # Used for when bot is tagged
     def getAiResponse(self, prompt) -> str:

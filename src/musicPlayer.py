@@ -92,6 +92,7 @@ class DiscordPlayer(discord.ui.View):
         super().__init__(timeout=None)
         self.id: int = guildID
         self.folderPath: str = folderPath
+        self.disconnecting: bool = False
 
         self.__voiceClient: discord.VoiceClient = None
         self.__txtChannel: discord.TextChannel = None
