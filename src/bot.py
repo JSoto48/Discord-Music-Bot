@@ -43,15 +43,15 @@ class MusicBot(commands.Bot):
         user_message: str = message.content
         aiReply: str = ''
 
-        if message.author.id == self.bot.user.id or user_message == '':
+        if message.author.id == self.user.id or user_message == '':
             # Messages sent from this bot or messages with no text
             return
         elif isinstance(message.channel, discord.channel.DMChannel):
             # DM's to the bot
             aiReply = self.getAiResponse(prompt=user_message, guildID=message.channel.id)
-        elif str(self.bot.user.id) in user_message:
+        elif str(self.user.id) in user_message:
             # Bot was tagged with @bot_username
-            tag: str = f'<@{self.bot.user.id}>'
+            tag: str = f'<@{self.user.id}>'
             prompt = user_message.replace(tag, '')
             aiReply = self.getAiResponse(prompt=prompt, guildID=message.guild.id)
         
