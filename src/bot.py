@@ -38,39 +38,19 @@ class MusicBot(commands.Bot):
         self.__binPath: str = os.path.join(os.getcwd(), "bin")
         self.__guilds: dict[int, DiscordPlayer] = {}
 
-    # Message handler for @ tags in text channels
-    async def on_message(self, message: discord.Message):
-        user_message: str = message.content
-        aiReply: str = ''
-
-        if message.author.id == self.user.id or user_message == '':
-            # Messages sent from this bot or messages with no text
-            return
-        elif isinstance(message.channel, discord.channel.DMChannel):
-            # DM's to the bot
-            aiReply = self.getAiResponse(prompt=user_message)
-        elif str(self.user.id) in user_message:
-            # Bot was tagged with @bot_username
-            tag: str = f'<@{self.user.id}>'
-            prompt = user_message.replace(tag, '')
-            aiReply = self.getAiResponse(prompt=prompt)
-        
-        if len(aiReply) >= 2000:
-            aiReply = aiReply[0:1999]
-        await message.reply(aiReply)
-
 
     # Called after the bot is initialized
     async def on_ready(self):
         try:
             self.setup_commands()
             synced = await self.tree.sync()
-            await self.change_presence(status=discord.Status.online, activity=discord.)
+            await self.change_presence(status=discord.Status.online, activity=discord.CustomActivity(name='Playing Music', emoji='♫'))
             print(f'Logged in as {self.user}. Commands in tree: {len(synced)}.')
         except Exception as e:
             print(f'Error syncing commands: {e}')
 
-    # Called when a user updates their voice state(joins, leaves, mutes...) inside the same guild the bot is in
+
+    # Voice Channel Auto-Disconnect Handler
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
         musicPlayer = self.__guilds.get(member.guild.id)
         if musicPlayer is None:
@@ -104,10 +84,27 @@ class MusicBot(commands.Bot):
                     print(e)
             self.__guilds.pop(member.guild.id)
             print(f'Auto-disconnect complete for guild: {member.guild.name}\n')
-            
+    
 
-    # Used for when bot is tagged
+    # Message handler for messages sent to the bot
+    async def on_message(self, message: discord.Message) -> None:
+        user_message: str = message.content
+
+        if message.author.id == self.user.id or user_message == '':
+            # Messages sent from this bot or messages with no text
+            return
+        elif isinstance(message.channel, discord.channel.DMChannel):
+            # DM's to the bot
+            await message.channel.send(self.getAiResponse(prompt=user_message))
+        elif str(self.user.id) in user_message:
+            # Bot was tagged with @bot_username
+            tag: str = f'<@{self.user.id}>'
+            await message.reply(self.getAiResponse(prompt=user_message.replace(tag, '')))
+    
+
+    # LLM responds to the prompt
     def getAiResponse(self, prompt: str) -> str:
+        msg: str = None
         try:
             response = self.groq.chat.completions.create(
                 messages = [
@@ -118,9 +115,16 @@ class MusicBot(commands.Bot):
                 ],
                 model="llama3-8b-8192",
             )
-            return response.choices[0].message.content
+            msg = response.choices[0].message.content
         except Exception as e:
             return "Please try again later. (=ʘᆽʘ=)"
+        if len(msg) > 2000:
+            # Discord message char limit
+            msg = msg[0:1999]
+        elif len(msg) < 1:
+            msg = "Please try again later. (=ʘᆽʘ=)"
+        return msg
+
 
     def setup_commands(self):
         @self.tree.command(name='joke', description='Sends a joke in chat. Be Warned: These may be dark humor.')

@@ -1,90 +1,15 @@
 import os
-import yt_dlp
-import pylast
 import spotipy
 import discord
-from math import ceil
-from random import choice
-from random import randint
+import messageEmbeds
+from song import Song
 from asyncio import run_coroutine_threadsafe
 from spotipy.oauth2 import SpotifyClientCredentials
 
-class Song():
-    def __init__(self, id: str, title: str, artists: list, requestor: discord.User,
-    duration: float = None, thumbnailUrl: str = None):
-        self.id: str = id
-        self.title: str = title
-        self.artists: list[str] = artists                    # Primary artist always at index 0
-        self.requestor: discord.User = requestor
-        self.duration: float = duration                 # TODO: Extract duration from yt download, currently in ms from spotify
-        self.thumbnailUrl: str = thumbnailUrl
-        self.__filePath: str = None
-    
-    def deleteFile(self):
-        if self.__filePath is None:
-            return
-        elif os.path.exists(self.__filePath):
-            os.remove(self.__filePath)
-            self.__filePath = None
-
-    def getFilePath(self, folderPath: str) -> str:
-        # KEEP THIS TOP PORTION AS IS |
-        #                             V
-        if not os.path.exists(folderPath):
-            os.makedirs(folderPath)
-        songBasePath: str = os.path.join(folderPath, self.id)
-        songPath: str = f"{songBasePath}.mp3"
-        if os.path.exists(songPath):
-            return songPath
-        elif self.__filePath != None and os.path.exists(self.__filePath):
-            return self.__filePath
-        #                             ^
-        # THANK YOU                   |
-        ytdl_opts = {
-            'format': 'bestaudio/best',         # Get the best audio quality
-            'extractaudio': True,               # Extract audio only
-            'audioformat': 'mp3',               # Convert to MP3 format
-            'noplaylist': True,                 # Don't download playlists
-            'quiet': True,                      # Suppress console output for faster processing
-            'no_warnings': True,                # Suppress warnings
-            'postprocessors': [{                # Post-process audio to convert to MP3
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '128',      # Audio quality (bitrate)
-            }],
-            'default_search': 'ytsearch1',       # Limit search to the first result
-            'outtmpl': songBasePath
-        }
-        query: str = f'{self.artists[0]} {self.title} audio'
-        with yt_dlp.YoutubeDL(ytdl_opts) as ytdl:
-            try:
-                ytdl.download([query])
-            except Exception as e:
-                print(f'YT Download Error: {e}')
-        if os.path.exists(songPath):
-            self.__filePath = songPath
-        return self.__filePath
-    
-    def getEmbed(self, title: str = None) -> discord.Embed:
-        footerText: str = None
-        artistList: str = ''
-        for i, artist in enumerate(self.artists):
-            if i == 0:
-                artistList += artist
-            else:
-                artistList += f', {artist}'
-        embed = discord.Embed(
-            title=(title if title else 'Now Playing'),
-            description=(f'{self.title} \nby {artistList}\n'),
-            colour=discord.Color.fuchsia()
-        )
-        embed.set_thumbnail(url=self.thumbnailUrl)
-        if self.requestor.bot:
-            footerText = 'Recommended song'
-        else:
-            footerText = f'Queued by {self.requestor.display_name}'
-        embed.set_footer(text=footerText, icon_url=self.requestor.display_avatar)
-        return embed
+import pylast
+from math import ceil
+from random import choice
+from random import randint
 
 
 class DiscordPlayer(discord.ui.View):
@@ -100,9 +25,9 @@ class DiscordPlayer(discord.ui.View):
         self.__currentSong: Song = None
         self.__lastQueuedSong: Song = None
         self.__resendMsg: bool = False
-        self.__songQueue: list[Song] = []   # FIFO
-        self.__recQueue: list[Song] = []    # FIFO
-        self.__history: list[Song] = []     # LIFO
+        self.__songQueue: list[Song] = list()   # FIFO
+        self.__recQueue: list[Song] = list()    # FIFO
+        self.__history: list[Song] = list()     # LIFO
 
         self.__spotify = spotipy.Spotify(
             auth_manager=SpotifyClientCredentials(client_id=os.environ.get('SPOTIFY_API_KEY'),
@@ -113,23 +38,41 @@ class DiscordPlayer(discord.ui.View):
             username=os.environ.get('LASTFM_USERNAME'),
             password_hash=(pylast.md5(os.environ.get('LASTFM_PASSWORD'))))
 
+
+    @discord.ui.button(emoji='⏪', style=discord.ButtonStyle.grey)
+    async def rewind(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        prevSong: Song = None
+        if len(self.__history) > 0:
+            prevSong = self.__history.pop(0)
+            self.__recQueue.insert(0, self.__currentSong)
+        else:
+            prevSong = self.__currentSong
+        
+        if self.__voiceClient.is_playing():
+            self.__voiceClient.pause()
+        self.playSong(song=prevSong, loop=interaction.client.loop)
+
+
     @discord.ui.button(emoji='⏯', style=discord.ButtonStyle.grey)
     async def pause(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         if self.__voiceClient.is_paused():
             self.__voiceClient.resume()
-            await self.sendNowPlayingMsg(songEmbed=self.__currentSong.getEmbed())
+            await self.sendNowPlayingMsg(song=self.__currentSong)
         elif self.__voiceClient.is_playing():
             self.__voiceClient.pause()
-            await self.__nowPlayingMsg.edit(embed=self.getPausedEmbed(avatar=interaction.user.display_avatar))
+            await self.__nowPlayingMsg.edit(embed=messageEmbeds.getPausedEmbed(song=self.__currentSong, user=interaction.user))
+
 
     @discord.ui.button(emoji='⏩', style=discord.ButtonStyle.grey)
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
-        await interaction.message.edit(embed=self.getLoadingEmbed())
-        self.loopChecker(loop=interaction.client.loop)
+        await interaction.message.edit(embed=messageEmbeds.getLoadingEmbed())
+        self.__loopChecker(loop=interaction.client.loop)
 
-    async def clearQueues(self) -> None:
+
+    async def __clearQueues(self) -> None:
         self.__resendMsg = False
         self.__lastQueuedSong = None
         if len(self.__songQueue) > 0:
@@ -146,6 +89,7 @@ class DiscordPlayer(discord.ui.View):
             self.__nowPlayingMsg = None
         self.__txtChannel = None
 
+
     async def disconnect(self) -> None:
         if self.__voiceClient:
             try:
@@ -154,15 +98,16 @@ class DiscordPlayer(discord.ui.View):
             except Exception as e:
                 print(e)
             self.__voiceClient = None
-        await self.clearQueues()
+        await self.__clearQueues()
+
 
     async def queueSong(self, song: Song, interaction: discord.Interaction) -> None:
-        if self.__voiceClient is None or self.__voiceClient.is_connected() is False:
+        if self.__voiceClient == None or self.__voiceClient.is_connected() == False:
             await self.disconnect()
             try:
                 self.__voiceClient = await interaction.user.voice.channel.connect()
             except Exception as e:
-                await interaction.followup.send(f'Failed to connect to voice.')
+                await interaction.followup.send(f'Failed to connect to voice channel.')
                 print(f'VOICE CONNECTION ERROR: {e}')
                 await self.disconnect()
                 return
@@ -173,16 +118,18 @@ class DiscordPlayer(discord.ui.View):
         self.__songQueue.append(song)
         await interaction.followup.send(f'Queued {song.title} by {song.artists[0]}.')
         if not self.__voiceClient.is_playing():
-            self.loopChecker(loop=interaction.client.loop)
+            self.__loopChecker(loop=interaction.client.loop)
 
-    def pushPrevious(self, song: Song) -> None:
+
+    def __pushPrevious(self, song: Song) -> None:
         if song != None:
             if len(self.__history) > 20:
                 poppedSong = self.__history.pop(len(self.__history) - 1)
                 poppedSong.deleteFile()
             self.__history.insert(0, song)
     
-    def popSong(self) -> Song:
+    
+    def __popSong(self) -> Song:
         if len(self.__songQueue) > 0:
             self.__recQueue.clear()
             return self.__songQueue.pop(0)
@@ -194,32 +141,115 @@ class DiscordPlayer(discord.ui.View):
                 if not self.getRecSongs(comparableSong=self.__lastQueuedSong):
                     if not self.getArtistCompare(artist=self.__lastQueuedSong.artists[0]):
                         self.__lastQueuedSong = None
-                        return self.popSong()
+                        return self.__popSong()
             else:
                 for track in self.__history:
                     if self.getRecSongs(comparableSong=track):
                         break
             return self.__recQueue.pop(0)
 
+
     def getChannelLength(self) -> int:
         if self.__voiceClient:
             return len(self.__voiceClient.channel.members)
         return -1
     
+        
+    def recentlyPlayed(self, title: str) -> bool:
+        target: str = title.lower()
+        if len(self.__history) < 1: return False
+        for track in self.__history:
+            pastTitle: str = track.title.lower()
+            if pastTitle == target:
+                return True
+            elif pastTitle.find(target) != -1:
+                return True
+            elif target.find(pastTitle) != -1:
+                return True
+        return False
+
+
+    def playSong(self, song: Song, loop) -> None:
+        if song is None:
+            print("Error: Song is Null!")
+            print(f"Length of recQueue: {len(self.__recQueue)}")
+            return
+        try:
+            songFilePath: str = song.getFilePath(folderPath=self.folderPath)
+            if songFilePath == None:
+                return
+        except Exception as e:
+            print(f'Caught exception: {e}')
+
+        run_coroutine_threadsafe(self.sendNowPlayingMsg(song=song), loop)
+        self.__currentSong = song
+        FFmpegOptions = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 
+            'options': '-vn'}
+
+        audio: discord.AudioSource = discord.PCMVolumeTransformer(
+                original=discord.FFmpegPCMAudio(source=songFilePath,
+                    executable='ffmpeg',
+                    pipe=False,
+                    options=FFmpegOptions),
+                volume=float(1.0))
+        self.__voiceClient.play(
+            source=audio,
+            after=lambda e: self.__loopChecker(loop),
+            application='audio',
+            bitrate=128,
+            fec=True,
+            expected_packet_loss=float(0.15),
+            bandwidth='full',
+            signal_type='music')
+
+
+    def __loopChecker(self, loop) -> None:
+        if self.__voiceClient == None:
+            # TODO: clear queues
+            return
+        elif not self.__voiceClient.is_connected():
+            # TODO: disconnect
+            return
+        else:
+            if self.__voiceClient.is_playing():
+                self.__voiceClient.pause()
+            if self.__currentSong:
+                self.__pushPrevious(song=self.__currentSong)
+            self.playSong(song=self.__popSong(), loop=loop)
+
+
+    async def sendNowPlayingMsg(self, song: Song) -> None:
+        if self.__nowPlayingMsg is None:
+            self.__nowPlayingMsg = await self.__txtChannel.send(embed=messageEmbeds.getPlayingEmbed(song=song), view=self)
+        elif self.__resendMsg:
+            try:
+                await self.__nowPlayingMsg.delete()
+            except Exception as e:
+                print(e)
+            self.__nowPlayingMsg = await self.__txtChannel.send(embed=messageEmbeds.getPlayingEmbed(song=song), view=self)
+            self.__resendMsg = False
+        else:
+            await self.__nowPlayingMsg.edit(embed=messageEmbeds.getPlayingEmbed(song=song))
+    
+
+
+
+
     def getArtistCompare(self, artist: str, count: int = 10) -> bool:
         try:
             topTracksList = self.__lastFM.get_artist(artist_name=artist).get_top_tracks(limit=count)
         except Exception as e:
             print(e)
-        if len(topTracksList) < 1 or topTracksList is None:
+        if len(topTracksList) < 1 or topTracksList is None:         # if len < count then swap to next artist in list
             print('artist compare failed')
             return False
             
         chosenSong: pylast.Track = choice(topTracksList).item
+        moreSongs: bool = False
         if self.recentlyPlayed(chosenSong.get_name()):
             moreSongs: bool = True
             for topTrack in topTracksList:
-                if self.recentlyPlayed(topTrack.item.get_name()) is False:
+                if not self.recentlyPlayed(topTrack.item.get_name()):
                     chosenSong = topTrack.item
                     moreSongs = False
                     break
@@ -236,6 +266,7 @@ class DiscordPlayer(discord.ui.View):
         self.__recQueue.append(recSong)
         if len(self.__recQueue) > 0: return True
         else: return False
+
 
     def getRecSongs(self, comparableSong: Song) -> bool:
         similarSongList: list[pylast.SimilarItem] = list()
@@ -281,80 +312,3 @@ class DiscordPlayer(discord.ui.View):
         print(f'Queued Songs: {queuedSongs}')
         if len(self.__recQueue) > 0: return True
         else: return False
-        
-    def recentlyPlayed(self, title: str) -> bool:
-        if len(self.__history) < 1: return False
-        for track in self.__history:
-            if title == track.title or title.find(track.title) != -1 or track.title.find(title) != -1:
-                return True
-        return False
-
-    def playSong(self, song: Song, loop) -> None:
-        if song is None:
-            print("Error: Song is Null!")
-            print(f"Length of recQueue: {len(self.__recQueue)}")
-            return
-        try:
-            songFilePath: str = song.getFilePath(folderPath=self.folderPath)
-        except Exception as e:
-            print(f'Caught exception: {e}')
-
-        run_coroutine_threadsafe(self.sendNowPlayingMsg(songEmbed=song.getEmbed()), loop)
-        self.__currentSong = song
-        FFmpegOptions = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 
-            'options': '-vn'}
-
-        audio: discord.AudioSource = discord.PCMVolumeTransformer(
-                original=discord.FFmpegPCMAudio(source=songFilePath,
-                    executable='ffmpeg',
-                    pipe=False,
-                    options=FFmpegOptions),
-                volume=float(1.0))
-        self.__voiceClient.play(
-            source=audio,
-            after=lambda e: self.loopChecker(loop),
-            application='audio',
-            bitrate=128,
-            fec=True,
-            expected_packet_loss=float(0.15),
-            bandwidth='full',
-            signal_type='music')
-
-    def loopChecker(self, loop) -> None:
-        if self.__voiceClient is None:
-            return
-        elif self.__voiceClient.is_connected():
-            if self.__voiceClient.is_playing():
-                self.__voiceClient.pause()
-            if self.__currentSong:
-                self.pushPrevious(song=self.__currentSong)
-            self.playSong(song=self.popSong(), loop=loop)
-        else:
-            self.__voiceClient.stop()
-
-    async def sendNowPlayingMsg(self, songEmbed: discord.Embed) -> None:
-        if self.__nowPlayingMsg is None:
-            self.__nowPlayingMsg = await self.__txtChannel.send(embed=songEmbed, view=self)
-        elif self.__resendMsg:
-            await self.__nowPlayingMsg.delete()
-            self.__nowPlayingMsg = await self.__txtChannel.send(embed=songEmbed, view=self)
-            self.__resendMsg = False
-        else:
-            await self.__nowPlayingMsg.edit(embed=songEmbed)
-    
-    def getPausedEmbed(self, avatar) -> discord.Embed:
-        pasuedEmbed: discord.Embed = discord.Embed(
-            title='Music Paused',
-            colour=discord.Color.dark_gold()
-        )
-        pasuedEmbed.set_thumbnail(url=self.__currentSong.thumbnailUrl)
-        pasuedEmbed.set_footer(icon_url=avatar)
-        return pasuedEmbed
-    
-    def getLoadingEmbed(self, title: str = None) -> discord.Embed:
-        loadingEmbed: discord.Embed = discord.Embed(
-            title=(title if title else 'Loading...'),
-            colour=discord.Color.fuchsia()
-        )
-        return loadingEmbed
-
