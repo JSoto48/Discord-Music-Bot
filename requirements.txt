@@ -6,3 +6,5 @@ yt_dlp
 pylast
 ffmpeg
 groq
+validators
+soundcloud-lib

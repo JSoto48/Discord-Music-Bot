@@ -2,7 +2,7 @@ import os
 import spotipy
 import discord
 import messageEmbeds
-from song import Song
+from song import Song, SpotifySong
 from asyncio import run_coroutine_threadsafe
 from spotipy.oauth2 import SpotifyClientCredentials
 
@@ -51,7 +51,7 @@ class DiscordPlayer(discord.ui.View):
         
         if self.__voiceClient.is_playing():
             self.__voiceClient.pause()
-        self.playSong(song=prevSong, loop=interaction.client.loop)
+        self.__playSong(song=prevSong, loop=interaction.client.loop)
 
 
     @discord.ui.button(emoji='⏯', style=discord.ButtonStyle.grey)
@@ -59,7 +59,7 @@ class DiscordPlayer(discord.ui.View):
         await interaction.response.defer()
         if self.__voiceClient.is_paused():
             self.__voiceClient.resume()
-            await self.sendNowPlayingMsg(song=self.__currentSong)
+            await self.__sendNowPlayingMsg(song=self.__currentSong)
         elif self.__voiceClient.is_playing():
             self.__voiceClient.pause()
             await self.__nowPlayingMsg.edit(embed=messageEmbeds.getPausedEmbed(song=self.__currentSong, user=interaction.user))
@@ -116,16 +116,17 @@ class DiscordPlayer(discord.ui.View):
         self.__lastQueuedSong = song
         self.__resendMsg = True
         self.__songQueue.append(song)
-        await interaction.followup.send(f'Queued {song.title} by {song.artists[0]}.')
+        await interaction.followup.send(f'Queued {song.title} by {song.getArtistList()}.')
         if not self.__voiceClient.is_playing():
             self.__loopChecker(loop=interaction.client.loop)
 
-
+    #TODO: Other song types
     def __pushPrevious(self, song: Song) -> None:
         if song != None:
             if len(self.__history) > 20:
                 poppedSong = self.__history.pop(len(self.__history) - 1)
-                poppedSong.deleteFile()
+                if type(poppedSong) is SpotifySong:
+                    poppedSong.deleteFile()
             self.__history.insert(0, song)
     
     
@@ -154,7 +155,7 @@ class DiscordPlayer(discord.ui.View):
             return len(self.__voiceClient.channel.members)
         return -1
     
-        
+    #TODO: Doesnt work
     def recentlyPlayed(self, title: str) -> bool:
         target: str = title.lower()
         if len(self.__history) < 1: return False
@@ -169,19 +170,20 @@ class DiscordPlayer(discord.ui.View):
         return False
 
 
-    def playSong(self, song: Song, loop) -> None:
+    def __playSong(self, song: Song, loop) -> None:
+        songFilePath: str = ''
         if song is None:
             print("Error: Song is Null!")
-            print(f"Length of recQueue: {len(self.__recQueue)}")
             return
-        try:
-            songFilePath: str = song.getFilePath(folderPath=self.folderPath)
-            if songFilePath == None:
-                return
-        except Exception as e:
-            print(f'Caught exception: {e}')
+        elif type(song) is SpotifySong:
+            try:
+                songFilePath: str = song.getFilePath(folderPath=self.folderPath)
+                if songFilePath == None:
+                    return
+            except Exception as e:
+                print(f'Caught exception: {e}')
 
-        run_coroutine_threadsafe(self.sendNowPlayingMsg(song=song), loop)
+        run_coroutine_threadsafe(self.__sendNowPlayingMsg(song), loop)
         self.__currentSong = song
         FFmpegOptions = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 
             'options': '-vn'}
@@ -204,32 +206,32 @@ class DiscordPlayer(discord.ui.View):
 
 
     def __loopChecker(self, loop) -> None:
-        if self.__voiceClient == None:
-            # TODO: clear queues
-            return
-        elif not self.__voiceClient.is_connected():
-            # TODO: disconnect
+        if self.__voiceClient == None or self.__voiceClient.is_connected() == False:
+            # TODO: reconnect?
             return
         else:
             if self.__voiceClient.is_playing():
                 self.__voiceClient.pause()
             if self.__currentSong:
                 self.__pushPrevious(song=self.__currentSong)
-            self.playSong(song=self.__popSong(), loop=loop)
+            if self.__nowPlayingMsg == None:
+                self.__resendMsg = True
+            self.__playSong(song=self.__popSong(), loop=loop)
 
 
-    async def sendNowPlayingMsg(self, song: Song) -> None:
+    async def __sendNowPlayingMsg(self, song: Song) -> None:
+        # TODO: Change to send message and accept an embed, that way we can pass the loading embed with custom text if needed for errors in plaly
         if self.__nowPlayingMsg is None:
-            self.__nowPlayingMsg = await self.__txtChannel.send(embed=messageEmbeds.getPlayingEmbed(song=song), view=self)
+            self.__nowPlayingMsg = await self.__txtChannel.send(embed=messageEmbeds.getPlayingEmbed(song), view=self)
         elif self.__resendMsg:
             try:
                 await self.__nowPlayingMsg.delete()
             except Exception as e:
                 print(e)
-            self.__nowPlayingMsg = await self.__txtChannel.send(embed=messageEmbeds.getPlayingEmbed(song=song), view=self)
+            self.__nowPlayingMsg = await self.__txtChannel.send(embed=messageEmbeds.getPlayingEmbed(song), view=self)
             self.__resendMsg = False
         else:
-            await self.__nowPlayingMsg.edit(embed=messageEmbeds.getPlayingEmbed(song=song))
+            await self.__nowPlayingMsg.edit(embed=messageEmbeds.getPlayingEmbed(song))
     
 
 
@@ -260,8 +262,8 @@ class DiscordPlayer(discord.ui.View):
         artistsList: list[str] = list()
         for artist in trackInfo['artists']:
             artistsList.append(artist['name'])
-        recSong = Song(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=self.__voiceClient.user, duration=trackInfo['duration_ms'],
-            thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'])
+        recSong = SpotifySong(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=self.__voiceClient.user, duration=trackInfo['duration_ms'],
+            thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'], explicit=trackInfo['explicit'])
         self.__recQueue.clear()
         self.__recQueue.append(recSong)
         if len(self.__recQueue) > 0: return True
@@ -306,8 +308,8 @@ class DiscordPlayer(discord.ui.View):
                 artistsList: list[str] = list()
                 for artist in trackInfo['artists']:
                     artistsList.append(artist['name'])
-                recSong = Song(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=self.__voiceClient.user, duration=trackInfo['duration_ms'],
-                    thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'])
+                recSong = SpotifySong(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=self.__voiceClient.user, duration=trackInfo['duration_ms'],
+                    thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'], explicit=trackInfo['explicit'])
                 self.__recQueue.append(recSong)
         print(f'Queued Songs: {queuedSongs}')
         if len(self.__recQueue) > 0: return True

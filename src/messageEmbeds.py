@@ -22,16 +22,10 @@ def getLoadingEmbed(title: str = None) -> discord.Embed:
 
 def getPlayingEmbed(song: Song) -> discord.Embed:
     footerText: str = None
-    artistList: str = ''
-    for i, artist in enumerate(song.artists):
-        if i == 0:
-            artistList += artist
-        else:
-            artistList += f', {artist}'
     embed = discord.Embed(
         title='Now Playing',
-        description=(f'{song.title} \nby {artistList}\n'),
-        colour=discord.Color.dark_green()
+        description=(f'{song.title} \nby {song.getArtistList()}\n'),
+        colour=discord.Color.from_rgb(r=25, g=180, b=27)
     )
     embed.set_thumbnail(url=song.thumbnailUrl)
     if song.requestor.bot:
