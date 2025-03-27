@@ -5,17 +5,21 @@ import yt_dlp
 
 # Base Class Object
 class Song():
-    def __init__(self, id: str, title: str, artists: list, requestor: discord.User):
+    def __init__(self, id: str, title: str, artists: list, requestor: discord.User, audioPath: str = None):
+        self.id: str = id
         self.title: str = title
         self.artists: list[str] = artists
         self.requestor: discord.User = requestor
-        self.id: str = id
+        self.audioPath: str = audioPath
+        self.skipped: bool = False
+
 
     def getArtist(self) -> str:
         if len(self.artists) < 1:
             return None
         return self.artists[0]
-    
+
+
     def getArtistList(self) -> str:
         if len(self.artists) < 1:
             return None
@@ -28,35 +32,37 @@ class Song():
         return artistList
 
 
+    def getAudioPath(self) -> str:
+        return self.audioPath
+
+
 
 class SpotifySong(Song):
     def __init__(self, id: str, title: str, artists: list, requestor: discord.User,
-    duration: float, thumbnailUrl: str, explicit: bool):
+                duration: float, thumbnailUrl: str, explicit: bool):
         super().__init__(id, title, artists, requestor)
         self.duration: float = duration                         # TODO: Extract duration from yt download, currently in ms from spotify
         self.thumbnailUrl: str = thumbnailUrl
         self.explicit: bool = explicit
-        self.source: str = 'SP'
-        self.__filePath: str = None
-    
-    
+
+
     def deleteFile(self):
-        if self.__filePath is None:
+        if self.audioPath is None:
             return
-        elif os.path.exists(self.__filePath):
-            os.remove(self.__filePath)
-            self.__filePath = None
+        elif os.path.exists(self.audioPath):
+            os.remove(self.audioPath)
+            self.audioPath = None
 
 
-    def getFilePath(self, folderPath: str) -> str:
+    def getAudioPath(self, folderPath: str) -> str:
         if not os.path.exists(folderPath):
             os.makedirs(folderPath)
         songBasePath: str = os.path.join(folderPath, self.id)
         songPath: str = f"{songBasePath}.mp3"
         if os.path.exists(songPath):
             return songPath
-        elif self.__filePath != None and os.path.exists(self.__filePath):
-            return self.__filePath
+        elif self.audioPath != None and os.path.exists(self.audioPath):
+            return self.audioPath
         
         ytdl_opts = {
             'format': 'bestaudio/best',         # Get the best audio quality
@@ -84,16 +90,17 @@ class SpotifySong(Song):
             except Exception as e:
                 print(f'YT Download Error: {e}')
         if os.path.exists(songPath):
-            self.__filePath = songPath
-        return self.__filePath
-    
-    
+            self.audioPath = songPath
+        return self.audioPath
+
+
 
 class SoundcloudSong(Song):
-    def __init__(self, id: str, title: str, artists: list, requestor: discord.User, url: str):
-        super().__init__(id, title, artists, requestor)
-        self.__url = url
-
+    def __init__(self, id: str, title: str, artists: list, requestor: discord.User, streamURL: str,
+                duration: float, thumbnailUrl: str):
+        super().__init__(id=id, title=title, artists=artists, requestor=requestor, audioPath=streamURL)
+        self.duration: float = duration                         # TODO: Extract duration from yt download, currently in ms from spotify
+        self.thumbnailUrl: str = thumbnailUrl
 
 
         

@@ -29,7 +29,7 @@ class MusicBot(commands.Bot):
         self.__jokeAPI: Jokes = asyncio.run(Jokes())
         self.__groq = Groq(api_key=environ.get('GROQ_API_KEY'))
         self.__spotifyAPI = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=environ.get('SPOTIFY_API_KEY'), client_secret=environ.get('SPOTIFY_SECRET_API_KEY')))
-        self.__soundcloudAPI = SoundcloudAPI()
+        self.__soundcloudAPI = SoundcloudAPI(client_id=environ.get('SOUNDCLOUD_CLIENT_ID'))
         self.__lastFM = pylast.LastFMNetwork(
             api_key=environ.get('LASTFM_API_KEY'),
             api_secret=environ.get('LASTFM_SECRET_API_KEY'),
@@ -165,13 +165,11 @@ class MusicBot(commands.Bot):
 
     def __getInputSong(self, query: str, requestor: discord.User) -> song.Song:
         trackInfo: object = None        # JSON API response
-        inputSong: song.Song = None
         if url(query):
             print(query)
             domain = urlparse(query).netloc.lower()
             print(domain)
             if domain.endswith('spotify.com'):
-                # Works
                 try:
                     trackInfo = self.__spotifyAPI.track(track_id=query)
                 except Exception as e:
@@ -181,7 +179,7 @@ class MusicBot(commands.Bot):
                 artistsList: list[str] = list()
                 for artist in trackInfo['artists']:
                     artistsList.append(artist['name'])
-                inputSong = song.SpotifySong(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=requestor, duration=trackInfo['duration_ms'],
+                return song.SpotifySong(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=requestor, duration=trackInfo['duration_ms'],
                         thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'], explicit=trackInfo['explicit'])
             elif domain.endswith('soundcloud.com'):
                 print("SoundCloud URL detected")
@@ -189,11 +187,24 @@ class MusicBot(commands.Bot):
                     trackInfo = self.__soundcloudAPI.resolve(query)
                 except Exception as e:
                     return None
-                assert type(trackInfo) is Track
+                if type(trackInfo) is Track:
+                    #TODO: check if streamable, if downloadable, otherwise YTDL
+                    try:
+                        trackStream: str = trackInfo.get_stream_url()
+                    except Exception as e:
+                        print(e)
+                        return None
+                    if trackStream is None:
+                        print("idk yet")
+                        return None
+                    return song.SoundcloudSong(id=trackInfo.id, title=trackInfo.title, artists=[trackInfo.artist], requestor=requestor,
+                                                streamURL=trackStream, duration=trackInfo.duration, thumbnailUrl=trackInfo.artwork_url)
+                else:
+                    # TODO: Might be playlist
+                    return None
             elif domain.endswith('music.apple.com'):
                 print("Apple Music URL detected")
         elif query[:4] == "FM@#":
-            # Works
             try:
                 trackInfo = self.__spotifyAPI.search(q=f"{(query.split('@#')[1]).split('^*')[0]} {query.split('^*')[1]}", type=['track'])['tracks']['items'][0]
             except Exception as e:
@@ -203,9 +214,8 @@ class MusicBot(commands.Bot):
             artistsList: list[str] = list()
             for artist in trackInfo['artists']:
                 artistsList.append(artist['name'])
-            inputSong = song.SpotifySong(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=requestor, duration=trackInfo['duration_ms'],
+            return song.SpotifySong(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=requestor, duration=trackInfo['duration_ms'],
                     thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'], explicit=trackInfo['explicit'])
-        return inputSong
 
 
 
@@ -257,6 +267,8 @@ class MusicBot(commands.Bot):
                     if len(trackValue) > 99:
                         trackValue = trackValue[0:98]
                     trackList.append(app_commands.Choice(name=trackQuery, value=trackValue))
+            elif url(current):
+                return trackList
             else:
                 apiCall = self.__spotifyAPI.search(q=current, limit=7, type=['track', 'artist'])
                 searchResults = apiCall['tracks']['items']
@@ -296,7 +308,6 @@ class MusicBot(commands.Bot):
 
         @self.tree.command(name='help', description='Overview and usage of the bot.')
         async def help(interaction: discord.Interaction):
-            # 1354211336652853461 SoundCloud, or Apple Music
             messageList: list[str] = list()
             helpMessage1: str = ""
             helpMessage2: str = ""
@@ -306,8 +317,8 @@ class MusicBot(commands.Bot):
             helpMessage1 += "\n  - __Prequisites:__ You must be connected to a voice channel before using the command. The bot must be a member of the server you are attempting to use the command in."
             helpMessage1 += "\n  - __Usage:__ Type '/play' in the message section of a text channel and press enter, you should be prompted with a 'query' box and an options list."
             helpMessage1 += " You can search for a song by typing in the song name or artists name in the 'query' box and choosing a song from the options list."
-            helpMessage1 += " Alternatively, you can paste a song link from Spotify into the 'query' box."
-            helpMessage1 += " Paste the link and press the right arrow key once to escape the 'query' box, then press enter to execute the command."
+            helpMessage1 += " Alternatively, you can paste a song link from Spotify or SoundCloud into the 'query' box."
+            helpMessage1 += " Paste the link and press enter to execute the command."
             helpMessage1 += "\n  - __Controls:__ After music starts playing, the bot will send a message containing the song info and three buttons to control the song queue."
             helpMessage1 += " First is the rewind button, this will play the previous song. Next is the pause/play button, this button will pause or play the music and edit the message to indicate if the music is paused or playing."
             helpMessage1 += " Last is the skip button to play the next song."

@@ -2,7 +2,7 @@ import os
 import spotipy
 import discord
 import messageEmbeds
-from song import Song, SpotifySong
+from song import Song, SpotifySong, SoundcloudSong
 from asyncio import run_coroutine_threadsafe
 from spotipy.oauth2 import SpotifyClientCredentials
 
@@ -59,7 +59,7 @@ class DiscordPlayer(discord.ui.View):
         await interaction.response.defer()
         if self.__voiceClient.is_paused():
             self.__voiceClient.resume()
-            await self.__sendNowPlayingMsg(song=self.__currentSong)
+            await self.__sendMsg(embed=messageEmbeds.getPlayingEmbed(song=self.__currentSong))
         elif self.__voiceClient.is_playing():
             self.__voiceClient.pause()
             await self.__nowPlayingMsg.edit(embed=messageEmbeds.getPausedEmbed(song=self.__currentSong, user=interaction.user))
@@ -68,6 +68,7 @@ class DiscordPlayer(discord.ui.View):
     @discord.ui.button(emoji='⏩', style=discord.ButtonStyle.grey)
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
+        self.__currentSong.skipped = True
         await interaction.message.edit(embed=messageEmbeds.getLoadingEmbed())
         self.__loopChecker(loop=interaction.client.loop)
 
@@ -175,15 +176,18 @@ class DiscordPlayer(discord.ui.View):
         if song is None:
             print("Error: Song is Null!")
             return
-        elif type(song) is SpotifySong:
+        elif type(song) is SpotifySong:             # elif isinstance(song, Song):
             try:
-                songFilePath: str = song.getFilePath(folderPath=self.folderPath)
-                if songFilePath == None:
-                    return
+                songFilePath: str = song.getAudioPath(folderPath=self.folderPath)
             except Exception as e:
                 print(f'Caught exception: {e}')
+        elif type(song) is SoundcloudSong:
+            songFilePath: str = song.getAudioPath()
+        
+        if songFilePath is None:
+            return
 
-        run_coroutine_threadsafe(self.__sendNowPlayingMsg(song), loop)
+        run_coroutine_threadsafe(self.__sendMsg(embed=messageEmbeds.getPlayingEmbed(song=song)), loop)
         self.__currentSong = song
         FFmpegOptions = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 
             'options': '-vn'}
@@ -207,7 +211,7 @@ class DiscordPlayer(discord.ui.View):
 
     def __loopChecker(self, loop) -> None:
         if self.__voiceClient == None or self.__voiceClient.is_connected() == False:
-            # TODO: reconnect?
+            run_coroutine_threadsafe(self.disconnect(), loop)
             return
         else:
             if self.__voiceClient.is_playing():
@@ -216,22 +220,22 @@ class DiscordPlayer(discord.ui.View):
                 self.__pushPrevious(song=self.__currentSong)
             if self.__nowPlayingMsg == None:
                 self.__resendMsg = True
+            # run_coroutine_threadsafe(self.__sendMsg(embed=messageEmbeds.getLoadingEmbed()), loop)
             self.__playSong(song=self.__popSong(), loop=loop)
 
 
-    async def __sendNowPlayingMsg(self, song: Song) -> None:
-        # TODO: Change to send message and accept an embed, that way we can pass the loading embed with custom text if needed for errors in plaly
+    async def __sendMsg(self, embed: discord.Embed) -> None:
         if self.__nowPlayingMsg is None:
-            self.__nowPlayingMsg = await self.__txtChannel.send(embed=messageEmbeds.getPlayingEmbed(song), view=self)
+            self.__nowPlayingMsg = await self.__txtChannel.send(embed=embed, view=self)
         elif self.__resendMsg:
             try:
                 await self.__nowPlayingMsg.delete()
             except Exception as e:
                 print(e)
-            self.__nowPlayingMsg = await self.__txtChannel.send(embed=messageEmbeds.getPlayingEmbed(song), view=self)
+            self.__nowPlayingMsg = await self.__txtChannel.send(embed=embed, view=self)
             self.__resendMsg = False
         else:
-            await self.__nowPlayingMsg.edit(embed=messageEmbeds.getPlayingEmbed(song))
+            await self.__nowPlayingMsg.edit(embed=embed)
     
 
 
