@@ -1,21 +1,21 @@
 import os
+from os import environ
 import song
+import pylast
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
+from sclib import SoundcloudAPI, Track
+from musicPlayer import DiscordPlayer
+from jokeapi import Jokes
+
 from validators import url
 from urllib.parse import urlparse
-import re
-import pylast
-import random
-import discord
-import spotipy
-from sclib import SoundcloudAPI, Track
 import asyncio
-from groq import Groq
-from os import environ
-from jokeapi import Jokes
+import discord
 from discord.ext import commands
-from musicPlayer import DiscordPlayer
-from discord import Message, Intents, app_commands
-from spotipy.oauth2 import SpotifyClientCredentials
+from discord import Intents, app_commands
+from embeds import getHelpEmbed
+# from messenger import AiMessager
 
 
 class MusicBot(commands.Bot):
@@ -25,9 +25,8 @@ class MusicBot(commands.Bot):
         intents.voice_states = True
         super().__init__(command_prefix='/', intents=intents)
 
-        # Connection to API's
+        # API Connections
         self.__jokeAPI: Jokes = asyncio.run(Jokes())
-        self.__groq = Groq(api_key=environ.get('GROQ_API_KEY'))
         self.__spotifyAPI = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=environ.get('SPOTIFY_API_KEY'), client_secret=environ.get('SPOTIFY_SECRET_API_KEY')))
         self.__soundcloudAPI = SoundcloudAPI(client_id=environ.get('SOUNDCLOUD_CLIENT_ID'))
         self.__lastFM = pylast.LastFMNetwork(
@@ -39,12 +38,13 @@ class MusicBot(commands.Bot):
 
         # Class variables
         if not os.path.exists(os.path.join(os.getcwd(), "bin")):
-            os.makedirs(os.path.join(os.getcwd(), "bin"))           # Ensure R/W permissions
+            os.makedirs(os.path.join(os.getcwd(), "bin"))
         self.__binPath: str = os.path.join(os.getcwd(), "bin")
-        self.__guilds: dict[int, DiscordPlayer] = {}
+        self.__guilds: dict[int, DiscordPlayer] = dict()
+        # self.__chats: dict[int, AiMessager] = dict()
 
 
-    # Called after the bot is initialized
+    # Called after the bot is finished initializing
     async def on_ready(self):
         try:
             self.setup_commands()
@@ -96,85 +96,16 @@ class MusicBot(commands.Bot):
             print(f'Auto-disconnect complete for guild: {member.guild.name}\n')
     
 
-    # Message handler for messages sent to the bot
-    async def on_message(self, message: discord.Message) -> None:
-        user_message: str = message.content
-        if message.author.id == self.user.id or user_message == '':
-            # Messages sent from this bot or messages with no text
-            return
-        elif str(self.user.id) in user_message:
-            # Bot was tagged with @bot_username
-            tag: str = f'<@{self.user.id}>'
-            responseList: list[str] = self.__getAiResponse(prompt=user_message.replace(tag, ''))
-            await self.sendStringList(stringList=responseList, message=message, dm=isinstance(message.channel, discord.channel.DMChannel))
-        elif isinstance(message.channel, discord.channel.DMChannel):
-            # DM's to the bot
-            responseList: list[str] = self.__getAiResponse(prompt=user_message)
-            await self.sendStringList(stringList=responseList, message=message, dm=True)
-    
-
-    async def sendStringList(self, stringList: list[str], message: discord.Message, dm: bool = False) -> None:
-        listLen: int = len(stringList)
-        if listLen < 1:
-            return
-        elif listLen > 1:
-            for i, textBlock in enumerate(stringList):
-                if i == 0 and dm == False:
-                    await message.reply(textBlock)
-                else:
-                    await message.channel.send(textBlock)
-        else:
-            if dm == True:
-                await message.channel.send(stringList[0])
-            else:
-                await message.reply(stringList[0])
-
-
-    def __getAiResponse(self, prompt: str) -> list[str]:
-        msgList: list[str] = list()
-        try:
-            response = self.__groq.chat.completions.create(
-                messages = [
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    }
-                ],
-                model="llama3-8b-8192",
-            )
-            msg = response.choices[0].message.content
-        except Exception as e:
-            msgList.append("Please try again later. (=ʘᆽʘ=)")
-            return msgList
-        responseLength: int = len(msg)
-        if responseLength < 1:
-            msgList.append("Something went wrong, please try again.")
-            return msgList
-        elif len(msg) < 2000:
-            msgList.append(msg)
-            return msgList
-        else:
-            textBlock: str = ''
-            for i, char in enumerate(msg):
-                textBlock += char
-                if i == (responseLength-1) or ((i+1) % 2000) == 0:     # Last char
-                    msgList.append(textBlock)
-                    textBlock = ''
-            return msgList
-
-
     def __getInputSong(self, query: str, requestor: discord.User) -> song.Song:
         trackInfo: object = None        # JSON API response
         if url(query):
-            print(query)
             domain = urlparse(query).netloc.lower()
-            print(domain)
             if domain.endswith('spotify.com'):
                 try:
                     trackInfo = self.__spotifyAPI.track(track_id=query)
-                except Exception as e:
+                except:
                     return None
-                if trackInfo == None:
+                if trackInfo is None:
                     return None
                 artistsList: list[str] = list()
                 for artist in trackInfo['artists']:
@@ -182,20 +113,18 @@ class MusicBot(commands.Bot):
                 return song.SpotifySong(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=requestor, duration=trackInfo['duration_ms'],
                         thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'], explicit=trackInfo['explicit'])
             elif domain.endswith('soundcloud.com'):
-                print("SoundCloud URL detected")
                 try:
                     trackInfo = self.__soundcloudAPI.resolve(query)
-                except Exception as e:
+                except:
                     return None
                 if type(trackInfo) is Track:
-                    #TODO: check if streamable, if downloadable, otherwise YTDL
                     try:
                         trackStream: str = trackInfo.get_stream_url()
                     except Exception as e:
                         print(e)
+                        #TODO: check if streamable, if downloadable, otherwise YTDL
                         return None
                     if trackStream is None:
-                        print("idk yet")
                         return None
                     return song.SoundcloudSong(id=trackInfo.id, title=trackInfo.title, artists=[trackInfo.artist], requestor=requestor,
                                                 streamURL=trackStream, duration=trackInfo.duration, thumbnailUrl=trackInfo.artwork_url)
@@ -216,7 +145,6 @@ class MusicBot(commands.Bot):
                 artistsList.append(artist['name'])
             return song.SpotifySong(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=requestor, duration=trackInfo['duration_ms'],
                     thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'], explicit=trackInfo['explicit'])
-
 
 
     def setup_commands(self):
@@ -240,18 +168,7 @@ class MusicBot(commands.Bot):
             await interaction.response.send_message(joke)
         
 
-        @self.tree.command(name='coinflip', description='Flips a coin')
-        async def coinflip(interaction: discord.Interaction):
-            value: int = random.randint(0, 1)
-            result: str = None
-            if value < 1:
-                result = 'Heads'
-            else:
-                result = 'Tails'
-            await interaction.response.send_message(f'Coin flip result: {result}')
-
-
-        async def songSelect(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        async def __songSelect(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
             await interaction.response.defer()
             trackList: list[app_commands.Choice] = list()
             trackQuery: str = ''
@@ -283,7 +200,7 @@ class MusicBot(commands.Bot):
 
         @self.tree.command(name='play', description='Plays music in your voice channel.')
         @app_commands.describe(query='Song select')
-        @app_commands.autocomplete(query=songSelect)
+        @app_commands.autocomplete(query=__songSelect)
         async def play(interaction: discord.Interaction, query: str):
             await interaction.response.defer()
             if query is None:
@@ -308,34 +225,7 @@ class MusicBot(commands.Bot):
 
         @self.tree.command(name='help', description='Overview and usage of the bot.')
         async def help(interaction: discord.Interaction):
-            messageList: list[str] = list()
-            helpMessage1: str = ""
-            helpMessage2: str = ""
-            helpMessage1 += "# DJ Music Bot Overview"
-            helpMessage1 += "\n### Commands"
-            helpMessage1 += "\n1. </play:1318586886394220637> - The play command allows you to play music in a discord server's voice channel."
-            helpMessage1 += "\n  - __Prequisites:__ You must be connected to a voice channel before using the command. The bot must be a member of the server you are attempting to use the command in."
-            helpMessage1 += "\n  - __Usage:__ Type '/play' in the message section of a text channel and press enter, you should be prompted with a 'query' box and an options list."
-            helpMessage1 += " You can search for a song by typing in the song name or artists name in the 'query' box and choosing a song from the options list."
-            helpMessage1 += " Alternatively, you can paste a song link from Spotify or SoundCloud into the 'query' box."
-            helpMessage1 += " Paste the link and press enter to execute the command."
-            helpMessage1 += "\n  - __Controls:__ After music starts playing, the bot will send a message containing the song info and three buttons to control the song queue."
-            helpMessage1 += " First is the rewind button, this will play the previous song. Next is the pause/play button, this button will pause or play the music and edit the message to indicate if the music is paused or playing."
-            helpMessage1 += " Last is the skip button to play the next song."
-            helpMessage1 += "\n  - __Disconnnecting:__ The bot can be manually disonnected from voice channels by users with permissions(typically server admins or owners), contact the server owner for permissions."
-            helpMessage1 += " While the bot is connected to a voice channel, right-click on the bot, look for the button with red text labeled 'Disconnect', and left-click it."
-            helpMessage1 += " Alternatively, the bot will automatically leave voice channnels when all other members leave."
-
-            helpMessage2 += "2. </joke:1317067512374100029> - The joke command will send a text message containing a joke in the text channel the command was used in."
-            helpMessage2 += "\n  - __Prequisites:__ The command must be used in a text channel; This can either be via DM or in a text channel within a server that the bot is a member of."
-            helpMessage2 += "\n  - __Usage:__ In the bottom of a text channel, there is a 'message' section. Type '/joke' and press enter."
-
-            helpMessage2 += "\n\n### Issues"
-            helpMessage2 +="\nIf you are still having issues, please join the Support Server for assistance: https://discord.gg/Qb4dU3Wx76"
-            
-
-            await interaction.response.send_message(helpMessage1)
-            await interaction.channel.send(helpMessage2)
+            await interaction.response.send_message(embed=getHelpEmbed())
 
                 
 

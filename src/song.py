@@ -2,6 +2,20 @@ import os
 import discord
 import yt_dlp
 
+YTDL_OPS = {
+    'format': 'bestaudio/best',         # Get the best audio quality
+    'extractaudio': True,               # Extract audio only
+    'audioformat': 'mp3',               # Convert to MP3 format
+    'noplaylist': True,                 # Don't download playlists
+    'quiet': True,                      # Suppress console output for faster processing
+    'no_warnings': True,                # Suppress warnings
+    'postprocessors': [{                # Post-process audio to convert to MP3
+        'key': 'FFmpegExtractAudio',
+        'preferredcodec': 'mp3',
+        'preferredquality': '128',      # Audio quality (bitrate) - matches discord.player bitrate
+    }],
+    'default_search': 'ytsearch1'       # Limit search to the first result
+}
 
 # Base Class Object
 class Song():
@@ -39,8 +53,9 @@ class Song():
 
 class SpotifySong(Song):
     def __init__(self, id: str, title: str, artists: list, requestor: discord.User,
-                duration: float, thumbnailUrl: str, explicit: bool):
+                guildFolderPath: str, duration: float, thumbnailUrl: str, explicit: bool):
         super().__init__(id, title, artists, requestor)
+        self.guildFolderPath = guildFolderPath
         self.duration: float = duration                         # TODO: Extract duration from yt download, currently in ms from spotify
         self.thumbnailUrl: str = thumbnailUrl
         self.explicit: bool = explicit
@@ -54,37 +69,22 @@ class SpotifySong(Song):
             self.audioPath = None
 
 
-    def getAudioPath(self, folderPath: str) -> str:
-        if not os.path.exists(folderPath):
-            os.makedirs(folderPath)
-        songBasePath: str = os.path.join(folderPath, self.id)
+    def getAudioPath(self) -> str:
+        if not os.path.exists(self.guildFolderPath):
+            os.makedirs(self.guildFolderPath)
+        songBasePath: str = os.path.join(self.guildFolderPath, self.id)
         songPath: str = f"{songBasePath}.mp3"
         if os.path.exists(songPath):
             return songPath
         elif self.audioPath != None and os.path.exists(self.audioPath):
             return self.audioPath
-        
-        ytdl_opts = {
-            'format': 'bestaudio/best',         # Get the best audio quality
-            'extractaudio': True,               # Extract audio only
-            'audioformat': 'mp3',               # Convert to MP3 format
-            'noplaylist': True,                 # Don't download playlists
-            'quiet': True,                      # Suppress console output for faster processing
-            'no_warnings': True,                # Suppress warnings
-            'postprocessors': [{                # Post-process audio to convert to MP3
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '128',      # Audio quality (bitrate) - matches discord.player bitrate
-            }],
-            'default_search': 'ytsearch1',      # Limit search to the first result
-            'outtmpl': songBasePath
-        }
 
+        YTDL_OPS.update({'outtmpl': songBasePath})
         query: str = f'{self.artists[0]} - {self.title}'
         if self.explicit:
             query += ' explicit'
         query += ' audio'
-        with yt_dlp.YoutubeDL(ytdl_opts) as ytdl:
+        with yt_dlp.YoutubeDL(YTDL_OPS) as ytdl:
             try:
                 ytdl.download([query])
             except Exception as e:
@@ -99,7 +99,7 @@ class SoundcloudSong(Song):
     def __init__(self, id: str, title: str, artists: list, requestor: discord.User, streamURL: str,
                 duration: float, thumbnailUrl: str):
         super().__init__(id=id, title=title, artists=artists, requestor=requestor, audioPath=streamURL)
-        self.duration: float = duration                         # TODO: Extract duration from yt download, currently in ms from spotify
+        self.duration: float = duration                         # TODO: convert
         self.thumbnailUrl: str = thumbnailUrl
 
 
