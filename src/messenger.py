@@ -29,15 +29,14 @@ class AiMessager(commands.Cog):
             # Bot was tagged with @bot_username
             tag: str = f'<@{self.bot.user.id}>'
             channel_id: int = -1
-            if isinstance(message.channel, discord.channel.DMChannel):
-                channel_id = message.channel.id
-            else:
-                channel_id = message.guild.id
+            if isinstance(message.channel, discord.channel.DMChannel): channel_id = message.channel.id
+            else: channel_id = message.guild.id
             responseList = self.__getResponse(prompt=user_message.replace(tag, ''), guild_id=channel_id)
             await self.sendStringList(stringList=responseList, message=message, dm=isinstance(message.channel, discord.channel.DMChannel))
     
 
     async def sendStringList(self, stringList: list[str], message: discord.Message, dm: bool = False) -> None:
+        # Discord has a 2000 char limit on messages
         listLen: int = len(stringList)
         if listLen < 1:
             return
@@ -55,6 +54,7 @@ class AiMessager(commands.Cog):
 
 
     def __getResponse(self, prompt: str, guild_id: int) -> list[str]:
+        # Gets an AI response to a prompt
         self.__pushHistory(role='user', content=prompt, guild_id=guild_id)
         try:
             response = self.__aiModel.chat.completions.create(
@@ -83,8 +83,7 @@ class AiMessager(commands.Cog):
 
 
     def __pushHistory(self, role: str, content: str, guild_id: int) -> None:
-        # History is a list of each message sent
-        # Messages are a dictionary containing two keys, role and content
+        # Keeps a max of 15 messages in history
         message: dict = {
             'role': role,
             'content': content
@@ -92,7 +91,7 @@ class AiMessager(commands.Cog):
         history: list[dict] = self.__chats.get(guild_id)
         if history is None:
             history = list()
-        elif len(history) > 10:
+        elif len(history) > 15:
             history.pop(0)
         history.append(message)
         self.__chats.update({guild_id:history})
