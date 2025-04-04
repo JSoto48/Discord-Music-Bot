@@ -25,13 +25,16 @@ class AiMessager(commands.Cog):
         if message.author.id == self.bot.user.id or user_message == '':
             # Messages sent from this bot or messages with no text(ex. images, embeds)
             return
-        elif str(self.bot.user.id) in user_message:
+        elif str(self.bot.user.id) in user_message or isinstance(message.channel, discord.channel.DMChannel):
             # Bot was tagged with @bot_username
             tag: str = f'<@{self.bot.user.id}>'
-            responseList = self.__getResponse(prompt=user_message.replace(tag, ''), guild_id=message.guild.id)
-        elif isinstance(message.channel, discord.channel.DMChannel):
-            responseList = self.__getResponse(prompt=user_message, guild_id=message.channel.id)
-        await self.sendStringList(stringList=responseList, message=message, dm=isinstance(message.channel, discord.channel.DMChannel))
+            channel_id: int = -1
+            if isinstance(message.channel, discord.channel.DMChannel):
+                channel_id = message.channel.id
+            else:
+                channel_id = message.guild.id
+            responseList = self.__getResponse(prompt=user_message.replace(tag, ''), guild_id=channel_id)
+            await self.sendStringList(stringList=responseList, message=message, dm=isinstance(message.channel, discord.channel.DMChannel))
     
 
     async def sendStringList(self, stringList: list[str], message: discord.Message, dm: bool = False) -> None:
