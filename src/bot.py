@@ -1,7 +1,7 @@
 """Contains the bot's commands"""
 import os
 from os import environ
-import song
+from song import Song, SpotifySong, SoundcloudSong
 import pylast
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
@@ -96,7 +96,7 @@ class MusicBot(commands.Bot):
             print(f'Auto-disconnect complete for guild: {member.guild.name}\n')
     
 
-    def __getInputSong(self, query: str, requestor: discord.User) -> song.Song:
+    def __getInputSong(self, query: str, requestor: discord.User, path: str) -> Song:
         trackInfo: object = None        # JSON API response
         if url(query):
             domain = urlparse(query).netloc.lower()
@@ -110,8 +110,8 @@ class MusicBot(commands.Bot):
                 artistsList: list[str] = list()
                 for artist in trackInfo['artists']:
                     artistsList.append(artist['name'])
-                return song.SpotifySong(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=requestor, duration=trackInfo['duration_ms'],
-                        thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'], explicit=trackInfo['explicit'])
+                return SpotifySong(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=requestor, guildFolderPath=path,
+                                        duration=trackInfo['duration_ms'], thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'], explicit=trackInfo['explicit'])
             elif domain.endswith('soundcloud.com'):
                 try:
                     trackInfo = self.__soundcloudAPI.resolve(query)
@@ -126,13 +126,10 @@ class MusicBot(commands.Bot):
                         return None
                     if trackStream is None:
                         return None
-                    return song.SoundcloudSong(id=trackInfo.id, title=trackInfo.title, artists=[trackInfo.artist], requestor=requestor,
+                    return SoundcloudSong(id=trackInfo.id, title=trackInfo.title, artists=[trackInfo.artist], requestor=requestor,
                                                 streamURL=trackStream, duration=trackInfo.duration, thumbnailUrl=trackInfo.artwork_url)
                 else:
-                    # TODO: Might be playlist
                     return None
-            elif domain.endswith('music.apple.com'):
-                print("Apple Music URL detected")
         elif query[:4] == "FM@#":
             try:
                 trackInfo = self.__spotifyAPI.search(q=f"{(query.split('@#')[1]).split('^*')[0]} {query.split('^*')[1]}", type=['track'])['tracks']['items'][0]
@@ -143,8 +140,8 @@ class MusicBot(commands.Bot):
             artistsList: list[str] = list()
             for artist in trackInfo['artists']:
                 artistsList.append(artist['name'])
-            return song.SpotifySong(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=requestor, duration=trackInfo['duration_ms'],
-                    thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'], explicit=trackInfo['explicit'])
+            return SpotifySong(id=trackInfo['id'], title=trackInfo['name'], artists=artistsList, requestor=requestor, guildFolderPath=path,
+                               duration=trackInfo['duration_ms'], thumbnailUrl=trackInfo['album']['images'][len(trackInfo['album']['images'])-1]['url'], explicit=trackInfo['explicit'])
 
 
     def setup_commands(self):
@@ -209,13 +206,13 @@ class MusicBot(commands.Bot):
                 await interaction.followup.send('Join a voice channel to play music.')
                 return
             
-            queuedSong: song.Song = self.__getInputSong(query=query, requestor=interaction.user)
+            guildPath: str = os.path.join(self.__binPath, str(interaction.guild_id))
+            queuedSong: Song = self.__getInputSong(query=query, requestor=interaction.user, path=guildPath)
             if queuedSong is None:
                 await interaction.followup.send(f'Select a song from search or paste a song link from Spotify, SoundCloud, or Apple Music. Type /help for more info.')
                 return
             musicPlayer: DiscordPlayer = self.__guilds.get(interaction.guild_id)
             if musicPlayer is None:
-                guildPath: str = os.path.join(self.__binPath, str(interaction.guild_id))
                 if not os.path.exists(guildPath):
                     os.makedirs(guildPath)
                 self.__guilds.update({interaction.guild_id:DiscordPlayer(guildID=interaction.guild_id, folderPath=guildPath)})
