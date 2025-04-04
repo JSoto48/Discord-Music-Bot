@@ -17,6 +17,7 @@ YTDL_OPS = {
     'default_search': 'ytsearch1'       # Limit search to the first result
 }
 
+
 # Base Class Object
 class Song():
     def __init__(self, id: str, title: str, artists: list, requestor: discord.User, audioPath: str = None):
@@ -79,7 +80,7 @@ class SpotifySong(Song):
         elif self.audioPath != None and os.path.exists(self.audioPath):
             return self.audioPath
 
-        YTDL_OPS.update({'outtmpl': songBasePath})
+        YTDL_OPS.update({'outtmpl':songBasePath})
         query: str = f'{self.artists[0]} - {self.title}'
         if self.explicit:
             query += ' explicit'
