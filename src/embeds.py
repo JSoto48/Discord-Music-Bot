@@ -1,3 +1,4 @@
+"""Predetermined messages used in system"""
 import discord
 from song import Song, SpotifySong, SoundcloudSong
 
@@ -9,7 +10,6 @@ def getPausedEmbed(song: Song, user: discord.User) -> discord.Embed:
     )
     if type(song) is SpotifySong or type(song) is SoundcloudSong:
         pasuedEmbed.set_thumbnail(url=song.thumbnailUrl)
-
     pasuedEmbed.set_footer(text=(f'By: {user.display_name}'), icon_url=user.display_avatar)
     return pasuedEmbed
 
@@ -22,6 +22,14 @@ def getLoadingEmbed(title: str = None) -> discord.Embed:
     return loadingEmbed
 
 
+def getErrorEmbed(title: str = None) -> discord.Embed:
+    errorEmbed: discord.Embed = discord.Embed(
+        title=(title if title else 'Error Loading Song'),
+        colour=discord.Color.from_rgb(r=220, g=0, b=0)
+    )
+    return errorEmbed
+
+
 def getPlayingEmbed(song: Song) -> discord.Embed:
     footerText: str = None
     playingEmbed: discord.Embed = discord.Embed(
@@ -31,7 +39,6 @@ def getPlayingEmbed(song: Song) -> discord.Embed:
     )
     if type(song) is SpotifySong or type(song) is SoundcloudSong:
         playingEmbed.set_thumbnail(url=song.thumbnailUrl)
-
     if song.requestor.bot:
         footerText = 'Recommended song'
     else:
