@@ -1,10 +1,9 @@
 python-dotenv
-jokeapi
 discord.py[voice]
 spotipy
-yt_dlp
-pylast
-ffmpeg
-groq
-validators
 soundcloud-lib
+yt_dlp
+ffmpeg
+g4f[all]
+validators
+jokeapi
