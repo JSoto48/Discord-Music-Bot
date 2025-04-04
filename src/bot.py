@@ -1,3 +1,4 @@
+"""Contains the bot's commands"""
 import os
 from os import environ
 import song
@@ -15,7 +16,6 @@ import discord
 from discord.ext import commands
 from discord import Intents, app_commands
 from embeds import getHelpEmbed
-# from messenger import AiMessager
 
 
 class MusicBot(commands.Bot):
@@ -41,19 +41,19 @@ class MusicBot(commands.Bot):
             os.makedirs(os.path.join(os.getcwd(), "bin"))
         self.__binPath: str = os.path.join(os.getcwd(), "bin")
         self.__guilds: dict[int, DiscordPlayer] = dict()
-        # self.__chats: dict[int, AiMessager] = dict()
 
 
     # Called after the bot is finished initializing
     async def on_ready(self):
         try:
+            await self.load_extension(name='messenger')
             self.setup_commands()
             synced = await self.tree.sync()
             await self.change_presence(
                 status=discord.Status.online,
                 activity=discord.Activity(
                     name='Music',
-                    type=discord.ActivityType.listening))       # emoji=discord.PartialEmoji(name='Music').from_str('♫')
+                    type=discord.ActivityType.playing))
             print(f'Logged in as {self.user}. Commands in tree: {len(synced)}.')
         except Exception as e:
             print(f'Error syncing commands: {e}')
