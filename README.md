@@ -1,4 +1,4 @@
-# [DJ Music Bot](https://discord.com/discovery/applications/1253415235163783199)
+# [DJ Music Bot](https://top.gg/bot/1253415235163783199?s=0ec993b0640d0)
 
 ## Features
 
