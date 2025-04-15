@@ -1,11 +1,15 @@
-# [DJ Music Bot](https://top.gg/bot/1253415235163783199?s=0ec993b0640d0)
+# DJ Music Bot
+
+[![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com/discovery/applications/1253415235163783199 "Discord App Explore Page")
+[![Top.gg](https://top.gg/api/widget/upvotes/1253415235163783199.svg)](https://top.gg/bot/1253415235163783199 "Top.gg App Explore Page")
+
 
 ## Features
 
 #### Advanced Music System
-- **Personalized Endless Listening: Fueled by AI**
-- **Intuitive Queue Controls**
+- **Personalized Endless Listening**: Song Recommendations Fueled by AI
 - **Multi-Platform Playback**: Seamlessly play tracks from Spotify or SoundCloud with automatic quality optimization
+- **Intuitive Queue Controls**
 <br>
 
 #### Chat Interface
@@ -13,5 +17,5 @@
 - **Multi-Lingual Support**: Responds in the language you speak
 <br>
 
-#### Joke Break
-- **Need a Laugh?**: Crack a smile with `/joke` – we've got over 1368 jokes ready to tickle your funny bone!
+#### Jokes
+- **Need a Laugh?** Crack a smile with `/joke`
